@@ -246,9 +246,30 @@ rules:
       - 제거 수행 계정과 승인 이력 점검
       - 직전 그룹 변경 및 관리자 활동 이력 확인
 
+  - rule_id: RULE-015
+    name: PowerShell 과도한 실행
+    type: aggregation
+    enabled: true
+    match:
+      event_id: "4688"
+      service_name: "powershell.exe"
+    group_by: [computer_name, username]
+    window:
+      minutes: 2
+    threshold:
+      count_gte: 5  # 2분 내 5번 이상 실행 시 탐지
+    severity: high
+    score: 60
+    attack:
+      tactic: Execution
+      technique: T1059.001
+    response_guide:
+      - 인코딩된 커맨드라인 인자 유무 확인
+      - 비정상 스크립트 다운로드 이력 점검
+
       # [프로세스 생성 및 실행 관련]
   - rule_id: RULE-041
-    name: 프로세스 생성 (Sysmon/Event 4688)
+    name: 프로세스 생성 탐지
     enabled: true
     type: single_event
     match:
@@ -259,8 +280,7 @@ rules:
       tactic: Execution
       technique: T1059
     response_guide:
-      - 실행된 프로세스의 경로 및 인자 확인
-      - 부모 프로세스와의 관계 확인
+      - 부모 프로세스 신뢰성 확인
 
   - rule_id: RULE-042
     name: PowerShell 실행 탐지

@@ -9,23 +9,25 @@ def evaluate_event(
     event_dict: Dict[str, Any],
     normalized: Dict[str, Any],
     recent_events: Optional[List[Dict[str, Any]]] = None,
-) -> Optional[Dict[str, Any]]:
+) -> List[Dict[str, Any]]:  # 반환 타입을 Optional -> List로 변경
     if recent_events is None:
         recent_events = []
 
     rules = load_rules()
     grouped = split_rules_by_type(rules)
+    
+    all_detections = []  # 탐지된 모든 결과를 담을 리스트
 
-    # 1) single_event 룰 먼저 평가
-    for rule in grouped["single_event"]:
+    # 1) single_event 룰 전체 평가
+    for rule in grouped.get("single_event", []):
         result = evaluate_single_event_rule(rule, event_dict, normalized)
         if result:
-            return result
+            all_detections.append(result)
 
-    # 2) aggregation 룰 평가
-    for rule in grouped["aggregation"]:
+    # 2) aggregation 룰 전체 평가
+    for rule in grouped.get("aggregation", []):
         result = evaluate_aggregation_rule(rule, event_dict, normalized, recent_events)
         if result:
-            return result
+            all_detections.append(result)
 
-    return None
+    return all_detections
