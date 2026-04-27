@@ -1,8 +1,11 @@
 import json
+import threading
 from datetime import datetime, timedelta
 
 from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
+
+SAVE_EVENT_LOCK = threading.Lock()
 
 
 def get_recent_events_for_detection(conn, current_event_time: str):
@@ -47,37 +50,38 @@ def get_recent_events_for_detection(conn, current_event_time: str):
 
 
 def save_event(event):
-    conn = get_conn()
-    cur = conn.cursor()
+    with SAVE_EVENT_LOCK:
+        conn = get_conn()
+        cur = conn.cursor()
 
-    recent_events = get_recent_events_for_detection(conn, event.event_time)
-    bundle = build_event_bundle(event, recent_events=recent_events)
+        recent_events = get_recent_events_for_detection(conn, event.event_time)
+        bundle = build_event_bundle(event, recent_events=recent_events)
 
-    cur.execute("""
-        INSERT INTO events (
-            event_time, event_id,
-            computer_name, username, source_ip,
-            group_name, message, raw_json,
-            event_json, normalized_json, detection_json, risk_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        event.event_time,
-        event.event_id,
-        event.computer_name,
-        event.username,
-        event.source_ip,
-        event.group_name,
-        event.message,
-        event.raw_json,
-        json.dumps(bundle["event"], ensure_ascii=False),
-        json.dumps(bundle["normalized"], ensure_ascii=False),
-        json.dumps(bundle["detection"], ensure_ascii=False),
-        json.dumps(bundle["risk"], ensure_ascii=False),
-    ))
+        cur.execute("""
+            INSERT INTO events (
+                event_time, event_id,
+                computer_name, username, source_ip,
+                group_name, message, raw_json,
+                event_json, normalized_json, detection_json, risk_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            event.event_time,
+            event.event_id,
+            event.computer_name,
+            event.username,
+            event.source_ip,
+            event.group_name,
+            event.message,
+            event.raw_json,
+            json.dumps(bundle["event"], ensure_ascii=False),
+            json.dumps(bundle["normalized"], ensure_ascii=False),
+            json.dumps(bundle["detection"], ensure_ascii=False),
+            json.dumps(bundle["risk"], ensure_ascii=False),
+        ))
 
-    conn.commit()
-    conn.close()
-    return {"result": "saved"}
+        conn.commit()
+        conn.close()
+        return {"result": "saved"}
 
 
 def list_events(limit: int = 50):

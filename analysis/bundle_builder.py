@@ -6,25 +6,51 @@ from analysis.detection_engine import evaluate_event
 from analysis.risk_engine import calculate_risk
 
 def build_default_detection() -> dict:
-    """탐지되지 않았을 때의 기본 구조"""
     return {
         "detected": False,
+        # 대표 탐지 정보: 기존 risk_engine / 기존 대시보드 호환용
         "rule_id": None,
         "rule_name": None,
         "reason": [],
         "attack_tactic": None,
         "attack_technique": None,
         "response_guide": [],
+        # 다중 탐지 정보
+        "all_rules": [],
+        "matched_rules": [],
     }
 
+
+def _as_list(value: Any) -> List[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _unique_keep_order(values: List[Any]) -> List[Any]:
+    result = []
+    seen = set()
+    for value in values:
+        key = json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def _score_value(result: Dict[str, Any]) -> int:
+    try:
+        return int((result.get("risk") or {}).get("final_score", 0))
+    except Exception:
+        return 0
+
 def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """
-    이벤트를 받아 정규화, 탐지, 위험도 계산을 수행하고 최종 DB 저장용 번들을 생성합니다.
-    """
     if recent_events is None:
         recent_events = []
 
-    # 1. 원본 데이터로부터 1차 딕셔너리 생성 (DB의 event_json 형태)
     event_dict = {
         "event_time": event.event_time,
         "event_id": str(event.event_id) if event.event_id is not None else None,
@@ -40,49 +66,70 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
         "logon_type": str(event.logon_type) if event.logon_type is not None else None,
         "service_name": event.service_name,
         "message": event.message,
+        # AS-REP Roasting 탐지를 위한 필드 (정규화 단계에서 추출됨)
+        "pre_auth_type": getattr(event, 'pre_auth_type', None),
+        "ticket_encryption_type": getattr(event, 'ticket_encryption_type', None),
     }
 
-    # 2. 이벤트 정규화 (event_normalizer 활용)
     normalized = normalize_event(event)
+    if normalized.get("service_name"):
+        event_dict["service_name"] = normalized["service_name"]
 
-    # 3. 탐지 엔진 실행 (단일 이벤트 및 집계 이벤트 룰 체크)
-    # detection_rules.yaml에 정의된 RULE-001~100 등이 여기서 평가됨
-    detection_result = evaluate_event(
+    # 3. 탐지 엔진 실행 (이제 모든 탐지 결과를 리스트로 수신)
+    detection_results = evaluate_event(
         event_dict=event_dict,
         normalized=normalized,
         recent_events=recent_events,
     )
 
-    # 4. 탐지 결과 구조화
+    # 4. 탐지 결과 구조화 및 다중 결과 통합
     detection = build_default_detection()
-    if detection_result and detection_result.get("detected"):
-        detection.update({
-            "detected": True,
-            "rule_id": detection_result.get("rule_id"),
-            "rule_name": detection_result.get("rule_name"),
-            "reason": detection_result.get("reason", []),
-            "attack_tactic": detection_result.get("attack_tactic"),
-            "attack_technique": detection_result.get("attack_technique"),
-            "response_guide": detection_result.get("response_guide", []),
-        })
+    if detection_results:
+        detection["detected"] = True
 
-    # 5. 위험도 계산 (risk_engine 활용)
-    # 룰에 설정된 점수(score)와 가중치(weight)를 합산하여 severity 결정
+        # 대표 탐지는 위험 점수가 가장 높은 룰로 선택
+        # 기존 risk_engine / 기존 대시보드가 rule_id, rule_name을 참조해도 깨지지 않게 유지
+        primary = max(detection_results, key=_score_value)
+        detection["rule_id"] = primary.get("rule_id")
+        detection["rule_name"] = primary.get("rule_name")
+        detection["attack_tactic"] = primary.get("attack_tactic")
+        detection["attack_technique"] = primary.get("attack_technique")
+
+        for res in detection_results:
+            rule_id = res.get("rule_id")
+            rule_name = res.get("rule_name")
+            rule_risk = res.get("risk") or {}
+
+            detection["all_rules"].append(rule_id)
+            detection["matched_rules"].append({
+                "rule_id": rule_id,
+                "rule_name": rule_name,
+                "reason": _as_list(res.get("reason")),
+                "attack_tactic": res.get("attack_tactic"),
+                "attack_technique": res.get("attack_technique"),
+                "response_guide": _as_list(res.get("response_guide")),
+                "risk": rule_risk,
+            })
+
+            detection["reason"].extend(_as_list(res.get("reason")))
+            detection["response_guide"].extend(_as_list(res.get("response_guide")))
+
+        detection["all_rules"] = _unique_keep_order(detection["all_rules"])
+        detection["reason"] = _unique_keep_order(detection["reason"])
+        detection["response_guide"] = _unique_keep_order(detection["response_guide"])
+
+    # 5. 위험도 계산
     risk = calculate_risk(event, normalized, detection)
 
-    # 6. Raw JSON 처리 (백업용)
     try:
         original_event = json.loads(event.raw_json) if event.raw_json else {}
     except (TypeError, json.JSONDecodeError):
         original_event = {"raw_text": event.raw_json} if event.raw_json else {}
 
-    # 7. 최종 번들 반환 (DB 최종 저장 형태)
     return {
-        "event": event_dict,            # event_json으로 저장됨
-        "normalized": normalized,      # normalized_json으로 저장됨
-        "detection": detection,        # detection_json으로 저장됨
-        "risk": risk,                  # risk_json으로 저장됨
-        "raw_json": {
-            "original_event": original_event
-        },
+        "event": event_dict,
+        "normalized": normalized,
+        "detection": detection,
+        "risk": risk,
+        "raw_json": {"original_event": original_event},
     }

@@ -93,7 +93,87 @@ def fetch_scenario_log(run_id: str, tail: int = 200):
         return res.json()
     except Exception as e:
         return {"result": "error", "message": str(e)}
-    
+
+
+def as_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def unique_keep_order(values):
+    result = []
+    seen = set()
+    for value in values:
+        key = json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def normalize_matched_rules(detection: dict):
+    """
+    신규 구조(matched_rules)가 있으면 룰별 상세 정보를 그대로 사용하고,
+    기존 DB에 저장된 all_rules/rule_name만 있는 이벤트도 깨지지 않도록 보정한다.
+    """
+    matched_rules = detection.get("matched_rules")
+    if isinstance(matched_rules, list) and matched_rules:
+        return [rule for rule in matched_rules if isinstance(rule, dict)]
+
+    all_rules = detection.get("all_rules")
+    if isinstance(all_rules, list) and all_rules:
+        normalized_rules = []
+        for idx, rule in enumerate(all_rules):
+            if isinstance(rule, dict):
+                normalized_rules.append(rule)
+            else:
+                normalized_rules.append({
+                    "rule_id": rule,
+                    "rule_name": detection.get("rule_name") if idx == 0 else None,
+                    "reason": [],
+                    "attack_tactic": None,
+                    "attack_technique": None,
+                    "response_guide": [],
+                    "risk": {},
+                })
+        return normalized_rules
+
+    if detection.get("rule_id") or detection.get("rule_name"):
+        return [{
+            "rule_id": detection.get("rule_id"),
+            "rule_name": detection.get("rule_name"),
+            "reason": as_list(detection.get("reason")),
+            "attack_tactic": detection.get("attack_tactic"),
+            "attack_technique": detection.get("attack_technique"),
+            "response_guide": as_list(detection.get("response_guide")),
+            "risk": {},
+        }]
+
+    return []
+
+
+def rule_label(rule: dict):
+    rule_id = rule.get("rule_id") or "-"
+    rule_name = rule.get("rule_name") or "-"
+    return f"{rule_id} / {rule_name}" if rule_name != "-" else str(rule_id)
+
+
+def severity_badge(severity: str):
+    severity = severity or "none"
+    style_map = {
+        "critical": ("#fee2e2", "#7f1d1d"),
+        "high": ("#ffedd5", "#9a3412"),
+        "medium": ("#fef3c7", "#92400e"),
+        "low": ("#dcfce7", "#166534"),
+        "none": ("#f3f4f6", "#374151"),
+    }
+    bg, fg = style_map.get(str(severity).lower(), ("#eef2ff", "#3730a3"))
+    return f'<span style="background-color:{bg}; color:{fg}; padding:3px 8px; border-radius:999px; font-weight:700;">{severity}</span>'
+
 
 
 st.set_page_config(page_title="AD Log Dashboard", layout="wide")
@@ -333,16 +413,22 @@ if menu == "방어":
             is_off_hours = normalized.get("is_off_hours", False)
 
             detected = detection.get("detected", False)
-            rule_name = detection.get("rule_name", "-")
-            attack_tactic = detection.get("attack_tactic", "-")
-            attack_technique = detection.get("attack_technique", "-")
-            reasons = detection.get("reason", [])
-            response_guide = detection.get("response_guide", [])
+            matched_rules = normalize_matched_rules(detection)
+            detected_rule_count = len(matched_rules)
+            all_rule_labels = [rule_label(rule) for rule in matched_rules]
+            representative_rule_name = detection.get("rule_name") or "-"
+            rule_summary = ", ".join(all_rule_labels) if all_rule_labels else representative_rule_name
+
+            reasons = unique_keep_order(as_list(detection.get("reason")))
+            response_guide = unique_keep_order(as_list(detection.get("response_guide")))
 
             severity = risk.get("severity", "none")
             final_score = risk.get("final_score", 0)
 
-            expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {rule_name}   |   {event_time}"
+            if detected_rule_count > 1:
+                expander_title = f"🚨 ID {event_id}   |   {computer_name}   |   탐지 {detected_rule_count}개   |   {event_time}"
+            else:
+                expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {rule_summary}   |   {event_time}"
 
             with st.expander(expander_title, expanded=False):
                 top_left, top_right = st.columns([9, 1])
@@ -427,26 +513,53 @@ if menu == "방어":
                 st.divider()
                 st.markdown("**탐지 결과**")
 
-                det1 = st.columns(3)
+                det1 = st.columns(4)
                 det1[0].write(f"탐지 여부: **{detected}**")
-                det1[1].write(f"탐지 룰: **{rule_name}**")
-                det1[2].write(f"위험도: **{severity}**")
+                det1[1].write(f"탐지 개수: **{detected_rule_count}개**")
+                det1[2].markdown(f"위험도: {severity_badge(severity)}", unsafe_allow_html=True)
+                det1[3].write(f"점수: **{final_score}**")
 
-                det2 = st.columns(2)
-                det2[0].write(f"ATT&CK Tactic: **{attack_tactic}**")
-                det2[1].write(f"ATT&CK Technique: **{attack_technique}**")
+                if matched_rules:
+                    st.markdown("**탐지된 룰 목록**")
+                    for idx, rule in enumerate(matched_rules, start=1):
+                        rule_risk = rule.get("risk") or {}
+                        rule_severity = rule_risk.get("severity", "-")
+                        rule_score = rule_risk.get("final_score", "-")
+                        rule_reason = as_list(rule.get("reason"))
+                        rule_guides = as_list(rule.get("response_guide"))
 
-                st.write(f"점수: **{final_score}**")
+                        with st.container(border=True):
+                            c_rule_1, c_rule_2, c_rule_3 = st.columns([4, 3, 3])
+                            c_rule_1.markdown(f"**{idx}. {rule_label(rule)}**")
+                            c_rule_2.write(f"ATT&CK Tactic: **{rule.get('attack_tactic') or '-'}**")
+                            c_rule_3.write(f"ATT&CK Technique: **{rule.get('attack_technique') or '-'}**")
 
+                            c_rule_4, c_rule_5 = st.columns([2, 8])
+                            c_rule_4.write(f"룰 위험도: **{rule_severity}**")
+                            c_rule_5.write(f"룰 점수: **{rule_score}**")
+
+                            if rule_reason:
+                                st.write("사유:")
+                                for r in rule_reason:
+                                    st.write(f"- {r}")
+
+                            if rule_guides:
+                                st.write("대응 가이드:")
+                                for g in rule_guides:
+                                    st.write(f"- {g}")
+                else:
+                    st.info("매칭된 탐지 룰이 없습니다.")
+
+                # 기존 구조와의 호환을 위해 통합 사유/대응 가이드도 함께 출력
                 if reasons:
-                    st.write("사유:")
-                    for r in reasons:
-                        st.write(f"- {r}")
+                    with st.expander("통합 탐지 사유 보기", expanded=False):
+                        for r in reasons:
+                            st.write(f"- {r}")
 
                 if response_guide:
-                    st.write("대응 가이드:")
-                    for g in response_guide:
-                        st.write(f"- {g}")
+                    with st.expander("통합 대응 가이드 보기", expanded=False):
+                        for g in response_guide:
+                            st.write(f"- {g}")
 
                 st.divider()
                 show_detail = st.toggle(
@@ -756,6 +869,99 @@ elif menu == "공격":
                                         st.success(f"{scenario['label']} 실행 요청 완료")
                                 except Exception as e:
                                     st.error(f"시나리오 실행 실패: {e}")
+            # scenario_id = scenario["scenario_id"]
+            # params_schema = scenario.get("params_schema") or []
+
+            # with st.container(border=True):
+            #     c1, c2 = st.columns([8, 2])
+
+            #     with c1:
+            #         st.markdown(f"**{scenario['label']}**")
+
+            #     extra_params = {}
+
+            #     # params_schema가 있을 때만 확장 입력 폼 표시
+            #     if params_schema:
+            #         with st.expander("파라미터 설정", expanded=False):
+            #             st.caption("이 시나리오는 추가 파라미터 입력을 지원합니다.")
+
+            #             for field in params_schema:
+            #                 field_name, value = render_param_field(scenario_id, field)
+            #                 if field_name:
+            #                     extra_params[field_name] = value
+
+            #             helps = [
+            #                 f"- **{f.get('label') or f.get('name')}**: {f.get('help')}"
+            #                 for f in params_schema
+            #                 if f.get("help")
+            #             ]
+            #             if helps:
+            #                 st.markdown("**파라미터 설명**")
+            #                 for line in helps:
+            #                     st.markdown(line)
+
+            #     with c2:
+            #         if st.button("실행", key=f"run_{scenario_id}"):
+            #             if not target_ip.strip():
+            #                 st.warning("타겟 IP를 입력하세요.")
+            #             elif not requested_by.strip():
+            #                 st.warning("실행자를 입력하세요.")
+            #             else:
+            #                 # required 검사
+            #                 missing_fields = []
+            #                 for field in params_schema:
+            #                     if not field.get("required", False):
+            #                         continue
+
+            #                     field_name = field.get("name")
+            #                     value = extra_params.get(field_name)
+
+            #                     if value is None:
+            #                         missing_fields.append(field.get("label") or field_name)
+            #                     elif isinstance(value, str) and not value.strip():
+            #                         missing_fields.append(field.get("label") or field_name)
+
+            #                 if missing_fields:
+            #                     st.warning(f"필수 파라미터를 입력하세요: {', '.join(missing_fields)}")
+            #                 else:
+            #                     params = {
+            #                         "target_ip": target_ip.strip(),
+            #                         "requested_by": requested_by.strip(),
+            #                     }
+
+            #                     # 빈 문자열은 제외하고 추가
+            #                     for k, v in extra_params.items():
+            #                         if isinstance(v, str):
+            #                             if v.strip():
+            #                                 params[k] = v.strip()
+            #                         else:
+            #                             params[k] = v
+
+            #                     try:
+            #                         run_res = requests.post(
+            #                             f"{BACKEND_URL}/scenario/run",
+            #                             json={
+            #                                 "scenario_id": scenario_id,
+            #                                 "params": params
+            #                             },
+            #                             timeout=10
+            #                         )
+            #                         run_res.raise_for_status()
+            #                         result = run_res.json()
+
+            #                         if result.get("result") == "error":
+            #                             st.warning(result.get("message", "시나리오 실행이 거부되었습니다."))
+            #                         else:
+            #                             st.session_state.last_run_id = result.get("run_id")
+            #                             st.session_state.last_scenario_id = result.get("scenario_id")
+            #                             st.session_state.last_target_ip = target_ip.strip()
+            #                             st.session_state.last_requested_by = requested_by.strip()
+            #                             st.success(f"{scenario['label']} 실행 요청 완료")
+            #                     except Exception as e:
+            #                         st.error(f"시나리오 실행 실패: {e}")
+
+
+
 
 
     st.divider()

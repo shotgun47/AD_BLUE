@@ -108,7 +108,10 @@ def evaluate_aggregation_rule(
         if not item_time:
             continue
 
-        if item_time < window_start or item_time > event_time:
+        # if item_time < window_start or item_time > event_time:
+        #     continue
+        window_end = event_time + timedelta(minutes=window_minutes)
+        if item_time < window_start or item_time > window_end:
             continue
 
         item_group_key = _build_group_key(group_fields, item_event, item_normalized)
@@ -128,13 +131,17 @@ def evaluate_aggregation_rule(
 
     target_name = event_dict.get("target_user") or event_dict.get("username")
 
+    group_text = ", ".join(group_fields) if group_fields else "전체"
+    reason_text = (
+        f"[{rule.get('name')}] 탐지: "
+        f"{group_text} 기준 {window_minutes}분 내 {count}회 이상 발생"
+    )
+
     return {
         "detected": True,
         "rule_id": rule.get("rule_id"),
         "rule_name": rule.get("name"),
-        "reason": [
-            f"동일 계정 {target_name} 기준 {window_minutes}분 내 로그인 실패 {count}회 이상"
-        ],
+        "reason": [reason_text],
         "attack_tactic": rule.get("attack", {}).get("tactic"),
         "attack_technique": rule.get("attack", {}).get("technique"),
         "response_guide": rule.get("response_guide", []),

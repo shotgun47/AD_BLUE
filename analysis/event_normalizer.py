@@ -1,5 +1,142 @@
 from datetime import datetime, timezone
 from typing import Optional, Any
+import json
+import re
+from pathlib import PureWindowsPath
+from typing import Optional, Any
+
+
+def _safe_json_loads(value: Any) -> dict:
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return {}
+
+
+def _deep_get(data: dict, path: list[str]) -> Any:
+    cur = data
+    for key in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+    return cur
+
+
+def _clean_placeholder(value: Any) -> Optional[Any]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+
+    # Logstash 치환 실패 문자열 무시
+    # 예: "%{service_name_extracted}", "%{source_ip_extracted}"
+    if text.startswith("%{") and text.endswith("}"):
+        return None
+
+    # 의미 없는 문자열 무시
+    if text.lower() in ("none", "null", "nan", "-"):
+        return None
+
+    return value
+
+
+def _basename_process(value: Any) -> Optional[str]:
+    if not value:
+        return None
+
+    text = str(value).strip().strip('"').strip("'")
+    if not text:
+        return None
+
+    # Logstash 치환 실패 placeholder 무시
+    # 예: "%{service_name_extracted}", "%{source_ip_extracted}"
+    if text.startswith("%{") and text.endswith("}"):
+        return None
+
+    # "None", "null", "-" 같은 의미 없는 값도 무시
+    if text.lower() in ("none", "null", "nan", "-"):
+        return None
+
+    # 커맨드라인 전체가 들어오는 경우 .exe까지만 사용
+    if ".exe" in text.lower():
+        idx = text.lower().find(".exe")
+        text = text[:idx + 4]
+
+    text = text.replace("/", "\\")
+
+    try:
+        name = PureWindowsPath(text).name
+    except Exception:
+        name = text.split("\\")[-1]
+
+    return name.lower() if name else None
+
+
+def _extract_new_process_name_from_message(message: Optional[str]) -> Optional[str]:
+    if not message:
+        return None
+
+    patterns = [
+        r"New Process Name:\s*(.+)",
+        r"새 프로세스 이름:\s*(.+)",
+        r"Process Name:\s*(.+)",
+        r"Image:\s*(.+)",
+    ]
+
+    for pattern in patterns:
+        m = re.search(pattern, message, re.IGNORECASE)
+        if not m:
+            continue
+
+        value = m.group(1).strip()
+        value = value.splitlines()[0].strip()
+        result = _basename_process(value)
+        if result:
+            return result
+
+    return None
+
+
+def get_process_service_name(event) -> Optional[str]:
+    """
+    4688 / Sysmon 프로세스 생성 이벤트에서 실행 프로세스명을 안정적으로 추출한다.
+    최종 반환값 예: powershell.exe, cmd.exe, wmiprvse.exe
+    """
+
+    # 1) 이미 모델 필드에 service_name이 들어온 경우
+    direct = _basename_process(getattr(event, "service_name", None))
+    if direct:
+        return direct
+
+    # 2) raw_json 안에서 Winlogbeat / ECS / 커스텀 구조 탐색
+    raw = _safe_json_loads(getattr(event, "raw_json", None))
+
+    candidates = [
+        ["winlog", "event_data", "NewProcessName"],
+        ["winlog", "event_data", "ProcessName"],
+        ["winlog", "event_data", "Image"],
+        ["event_data", "NewProcessName"],
+        ["event_data", "ProcessName"],
+        ["event_data", "Image"],
+        ["process", "executable"],
+        ["process", "name"],
+        ["NewProcessName"],
+        ["ProcessName"],
+        ["Image"],
+    ]
+
+    for path in candidates:
+        value = _deep_get(raw, path)
+        result = _basename_process(value)
+        if result:
+            return result
+
+    # 3) message 문자열에서 추출
+    return _extract_new_process_name_from_message(getattr(event, "message", None))
 
 
 def _to_str(value: Any) -> Optional[str]:
@@ -123,16 +260,16 @@ def get_logon_type_name(logon_type: Optional[str]) -> Optional[str]:
 
 
 def normalize_event(event) -> dict:
-    username = getattr(event, "username", None)
-    target_user = getattr(event, "target_user", None)
-    computer_name = getattr(event, "computer_name", None)
-    group_name = getattr(event, "group_name", None)
-    source_ip = getattr(event, "source_ip", None)
-    target_host = getattr(event, "target_host", None)
-    service_name = getattr(event, "service_name", None)
-    logon_type = getattr(event, "logon_type", None)
-    event_time = getattr(event, "event_time", None)
-    event_id = getattr(event, "event_id", None)
+    username = _clean_placeholder(getattr(event, "username", None))
+    target_user = _clean_placeholder(getattr(event, "target_user", None))
+    computer_name = _clean_placeholder(getattr(event, "computer_name", None))
+    group_name = _clean_placeholder(getattr(event, "group_name", None))
+    source_ip = _clean_placeholder(getattr(event, "source_ip", None))
+    target_host = _clean_placeholder(getattr(event, "target_host", None))
+    logon_type = _clean_placeholder(getattr(event, "logon_type", None))
+    event_time = _clean_placeholder(getattr(event, "event_time", None))
+    event_id = _clean_placeholder(getattr(event, "event_id", None))
+    service_name = get_process_service_name(event)
 
     return {
         "event_type": get_event_type(event_id),

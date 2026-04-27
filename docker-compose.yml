@@ -24,7 +24,6 @@ services:
       - "5044:5044"   # Winlogbeat -> Logstash
     volumes:
       - ./collector/pipeline:/usr/share/logstash/pipeline
-      - ./collector:/usr/share/logstash/testdata
     depends_on:
       - backend
     networks:

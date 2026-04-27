@@ -246,6 +246,27 @@ rules:
       - 제거 수행 계정과 승인 이력 점검
       - 직전 그룹 변경 및 관리자 활동 이력 확인
 
+  - rule_id: RULE-015
+    name: PowerShell 과도한 실행
+    type: aggregation
+    enabled: true
+    match:
+      event_id: "4688"
+      service_name: "powershell.exe"
+    group_by: [computer_name, username]
+    window:
+      minutes: 2
+    threshold:
+      count_gte: 5  # 2분 내 5번 이상 실행 시 탐지
+    severity: high
+    score: 60
+    attack:
+      tactic: Execution
+      technique: T1059.001
+    response_guide:
+      - 인코딩된 커맨드라인 인자 유무 확인
+      - 비정상 스크립트 다운로드 이력 점검
+
       # [프로세스 생성 및 실행 관련]
   - rule_id: RULE-041
     name: 프로세스 생성 (Sysmon/Event 4688)
@@ -309,3 +330,63 @@ rules:
     response_guide:
       - 과도한 인증 요청 발생 여부 확인
       - 암호화 수준(Encryption Type) 확인
+
+  - rule_id: RULE-063
+    name: AS-REP Roasting 취약 설정 계정 인증 시도
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4768"
+      pre_auth_type: 0  # Pre-Auth 미사용
+    severity: medium
+    score: 50
+    attack:
+      tactic: Credential Access
+      technique: T1558.004
+    response_guide:
+      - 해당 계정의 'Do not require Kerberos preauthentication' 설정 확인
+      - 비인가된 IP에서의 요청인지 점검
+
+  # RULE-064: 다수 계정 대상 AS-REP Roasting 스캐닝 (Horizontal Aggregation)
+  - rule_id: RULE-064
+    name: 다수 계정 대상 AS-REP Roasting 스캐닝 의심
+    type: aggregation
+    enabled: true
+    match:
+      event_id: "4768"
+      pre_auth_type: 0
+    group_by: [source_ip]
+    window:
+      minutes: 5
+    threshold:
+      count_gte: 5  # 5분 내 5개 이상의 다른 계정에 대해 시도
+    severity: high
+    score: 80
+    attack:
+      tactic: Credential Access
+      technique: T1558.004
+    response_guide:
+      - 공격 원점 IP(source_ip) 차단 검토
+      - 내부 자산에 대한 전수 보안 점검 실시
+
+  # RULE-065: 특정 계정 대상 AS-REP Roasting 반복 시도 (Vertical Aggregation)
+  - rule_id: RULE-065
+    name: 특정 계정 대상 집중 AS-REP Roasting 시도
+    type: aggregation
+    enabled: true
+    match:
+      event_id: "4768"
+      pre_auth_type: 0
+    group_by: [target_user]
+    window:
+      minutes: 5
+    threshold:
+      count_gte: 10 # 5분 내 특정 한 계정에 10회 이상 시도
+    severity: high
+    score: 75
+    attack:
+      tactic: Credential Access
+      technique: T1558.004
+    response_guide:
+      - 타겟 계정의 암호 변경 및 보안 강화
+      - 도메인 컨트롤러 로그 확인을 통한 해시 탈취 여부 조사
