@@ -4,7 +4,7 @@ import requests
 
 ATTACK_RUNNER_URL = os.getenv("ATTACK_RUNNER_URL", "")
 ATTACK_RUNNER_TOKEN = os.getenv("ATTACK_RUNNER_TOKEN", "")
-
+BACKEND_IP = os.getenv("BACKEND_IP", "").rstrip("/")
 
 def _auth_headers():
     return {"X-API-Token": ATTACK_RUNNER_TOKEN}
@@ -16,10 +16,17 @@ def run_scenario(req):
 
     run_id = f"run-{uuid.uuid4().hex[:8]}"
 
+    _params = req.params or {}
+
+    if BACKEND_IP and not _params.get("backend_url"):
+        _params["backend_url"] = BACKEND_IP
+    
     body = {
         "scenario_id": req.scenario_id,
         "request_id": run_id,
-        "params": req.params or {}
+        "target_ip": _params.get("target_ip"),
+        "requested_by": _params.get("requested_by"),
+        "params": _params
     }
 
     try:

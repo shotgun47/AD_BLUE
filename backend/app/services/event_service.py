@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 from datetime import datetime, timedelta
 
@@ -6,6 +7,70 @@ from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
 
 SAVE_EVENT_LOCK = threading.Lock()
+
+EVENT_SAVE_MODE = os.getenv("EVENT_SAVE_MODE", "lab").lower()
+
+IMPORTANT_EVENT_IDS = {
+    # Windows Security
+    "4624",  # 로그인 성공
+    "4625",  # 로그인 실패
+    "4634",  # 로그오프
+    "4648",  # 명시적 자격 증명 사용
+    "4672",  # 특권 로그온
+    "4688",  # 프로세스 생성
+
+    # 계정/그룹 변경
+    "4720", "4722", "4723", "4724", "4725", "4726",
+    "4728", "4729", "4732", "4733",
+    "4756", "4757",
+
+    # Kerberos
+    "4768", "4769", "4771",
+
+    # Sysmon
+    "1",    # Process Create
+    "3",    # Network Connection
+    "7",    # Image Loaded
+    "11",   # File Create
+    "12",   # Registry Object Create/Delete
+    "13",   # Registry Value Set
+    "14",   # Registry Value Rename
+    "22",   # DNS Query
+}
+
+
+
+
+
+def _get_detected(bundle: dict) -> bool:
+    detection = bundle.get("detection") or {}
+    return bool(detection.get("detected"))
+
+
+def _get_event_id(event) -> str:
+    event_id = getattr(event, "event_id", None)
+    return str(event_id) if event_id is not None else ""
+
+
+def should_store_event(event, bundle: dict) -> bool:
+    mode = EVENT_SAVE_MODE
+    event_id = _get_event_id(event)
+    detected = _get_detected(bundle)
+
+    if mode == "debug":
+        return True
+
+    if mode == "alert":
+        return detected
+
+    # 기본값: lab
+    # 중요 이벤트 ID는 탐지되지 않아도 저장하고,
+    # 중요 목록 밖 이벤트라도 탐지되면 저장한다.
+    if mode == "lab":
+        return detected or event_id in IMPORTANT_EVENT_IDS
+
+    # 잘못된 값이 들어오면 안전하게 lab처럼 동작
+    return detected or event_id in IMPORTANT_EVENT_IDS
 
 
 def get_recent_events_for_detection(conn, current_event_time: str):
@@ -57,6 +122,18 @@ def save_event(event):
         recent_events = get_recent_events_for_detection(conn, event.event_time)
         bundle = build_event_bundle(event, recent_events=recent_events)
 
+
+        if not should_store_event(event, bundle):
+            conn.close()
+            return {
+                "result": "skipped",
+                "mode": EVENT_SAVE_MODE,
+                "event_id": _get_event_id(event),
+                "detected": _get_detected(bundle),
+                "reason": "event did not match save policy",
+            }
+
+
         cur.execute("""
             INSERT INTO events (
                 event_time, event_id,
@@ -84,15 +161,46 @@ def save_event(event):
         return {"result": "saved"}
 
 
-def list_events(limit: int = 50):
+def get_event_save_policy():
+    return {
+        "mode": EVENT_SAVE_MODE,
+        "important_event_ids": sorted(IMPORTANT_EVENT_IDS, key=lambda x: int(x) if str(x).isdigit() else 999999),
+        "important_event_count": len(IMPORTANT_EVENT_IDS),
+    }
+
+
+def list_events(limit: int | None = None, since_minutes: int | None = 60):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT * FROM events
-        ORDER BY id DESC
-        LIMIT ?
-    """, (limit,))
+    if since_minutes is not None:
+        cutoff = datetime.utcnow() - timedelta(minutes=since_minutes)
+        cutoff_text = cutoff.isoformat()
+
+        if limit is None:
+            cur.execute("""
+                SELECT *
+                FROM events
+                WHERE event_time >= ?
+                ORDER BY id DESC
+            """, (cutoff_text,))
+        else:
+            cur.execute("""
+                SELECT *
+                FROM events
+                WHERE event_time >= ?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (cutoff_text, limit))
+
+    else:
+        safe_limit = limit or 100
+        cur.execute("""
+            SELECT *
+            FROM events
+            ORDER BY id DESC
+            LIMIT ?
+        """, (safe_limit,))
 
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()

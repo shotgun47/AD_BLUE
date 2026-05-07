@@ -1,4 +1,4 @@
-from fastapi import FastAPI,  HTTPException
+from fastapi import FastAPI,  HTTPException, Body
 from typing import List
 
 from app.db import init_db
@@ -8,6 +8,7 @@ from app.services.event_service import (
     list_events,
     delete_all_events,
     delete_event_by_id,
+    get_event_save_policy,
 )
 from app.services.scenario_service import (
     run_scenario,
@@ -16,6 +17,11 @@ from app.services.scenario_service import (
     list_scenario_runs,
     list_running_scenario_runs,
     get_scenario_log,
+)
+from app.services.recon_service import (
+    save_recon_result,
+    get_latest_recon_result,
+    get_latest_recon_summary,
 )
 
 
@@ -37,8 +43,13 @@ def ingest_event(event: EventIn):
 
 
 @app.get("/events")
-def get_events(limit: int = 50):
-    return list_events(limit)
+def get_events(limit: int | None = None, since_minutes: int | None = 60):
+    return list_events(limit=limit, since_minutes=since_minutes)
+
+
+@app.get("/events/save-policy")
+def event_save_policy():
+    return get_event_save_policy()
 
 
 @app.delete("/events")
@@ -83,3 +94,20 @@ def scenario_runs(limit: int = 5):
 @app.get("/scenario-runs/running")
 def scenario_runs_running():
     return list_running_scenario_runs()
+
+
+# recon Result
+
+@app.post("/recon-results")
+def ingest_recon_result(payload: dict = Body(...)):
+    return save_recon_result(payload)
+
+
+@app.get("/recon-results/latest/{tool}")
+def latest_recon_result(tool: str):
+    return get_latest_recon_result(tool)
+
+
+@app.get("/recon-results/latest/{tool}/summary")
+def latest_recon_summary(tool: str):
+    return get_latest_recon_summary(tool)

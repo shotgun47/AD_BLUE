@@ -60,7 +60,7 @@ dist/
 docker-compose.override.yml
 
 # Local data / uploads / temp artifacts
-# data/
+data/
 tmp/
 temp/
 # uploads/

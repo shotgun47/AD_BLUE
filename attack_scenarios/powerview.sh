@@ -29,16 +29,17 @@ except Exception:
 PY
 }
 
-VICTIM_HOST="$(get_param target_ip)"
+TARGET_IP="$(get_param target_ip)"
+REQUESTED_BY="$(get_param requested_by)"
 WINRM_USER="$(get_param winrm_user)"
 WINRM_PASS="$(get_param winrm_pass)"
 DOMAIN_NAME="$(get_param domain_name "lab.local")"
+BACKEND_URL="$(get_param backend_url "http://backend:8000")"
 
-if [ -z "$VICTIM_HOST" ] || [ -z "$WINRM_USER" ] || [ -z "$WINRM_PASS" ]; then
+if [ -z "$TARGET_IP" ] || [ -z "$WINRM_USER" ] || [ -z "$WINRM_PASS" ]; then
   echo "[ERROR] required params missing"
-  echo "  victim_host=$VICTIM_HOST"
+  echo "  target_ip=$TARGET_IP"
   echo "  winrm_user=$WINRM_USER"
-  echo "  domain_name=$DOMAIN_NAME"
   exit 1
 fi
 
@@ -47,31 +48,33 @@ if ! command -v evil-winrm >/dev/null 2>&1; then
   exit 1
 fi
 
-TMP_CMDS="/tmp/powerview_cmd_${RUN_ID}.txt"
+TMP_CMDS="/tmp/powerview_recon_${RUN_ID}.txt"
 
 cat > "$TMP_CMDS" <<EOF
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-& "C:\\Tools\\PowerView\\pv_recon.ps1" -DomainUser "$WINRM_USER" -DomainPass "$WINRM_PASS" -Domain "$DOMAIN_NAME"
+& "C:\\Tools\\PowerView\\pv_AD_recon.ps1" -DomainUser "$WINRM_USER" -DomainPass "$WINRM_PASS" -Domain "$DOMAIN_NAME" -BackendUrl "$BACKEND_URL" -TargetHost "$TARGET_IP" -RequestedBy "$REQUESTED_BY"
 exit
 EOF
 
 echo "[INFO] =========================================="
-echo "[INFO] PowerView AD recon started"
+echo "[INFO] PowerView recon started"
 echo "[INFO] run_id      : $RUN_ID"
-echo "[INFO] victim_host : $VICTIM_HOST"
+echo "[INFO] target_ip   : $TARGET_IP"
+echo "[INFO] requested_by: $REQUESTED_BY"
 echo "[INFO] winrm_user  : $WINRM_USER"
 echo "[INFO] domain_name : $DOMAIN_NAME"
+echo "[INFO] backend_url : $BACKEND_URL"
 echo "[INFO] =========================================="
 
 set +e
-evil-winrm -i "$VICTIM_HOST" -u "$WINRM_USER" -p "$WINRM_PASS" < "$TMP_CMDS"
+evil-winrm -i "$TARGET_IP" -u "$WINRM_USER" -p "$WINRM_PASS" < "$TMP_CMDS"
 RC=$?
 set -e
 
 rm -f "$TMP_CMDS"
 
 echo "[INFO] =========================================="
-echo "[INFO] PowerView AD recon finished"
+echo "[INFO] PowerView recon finished"
 echo "[INFO] return code : $RC"
 echo "[INFO] =========================================="
 
