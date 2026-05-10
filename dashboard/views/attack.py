@@ -190,5 +190,15 @@ def render_attack():
         st.info("표시할 공격 시나리오가 없습니다.")
         return
 
-    for scenario in attack_scenarios:
-        render_scenario_card(scenario, target_ip, requested_by)
+    tab1, tab2, tab3 = st.tabs(["탐지 테스트", "공격 시나리오", "기타"])
+
+    with tab1:
+        for scenario in grouped["detection_test"]:
+            render_scenario_card(scenario, target_ip, requested_by)
+    with tab2:
+        for scenario in grouped["real_attack"]:
+            render_scenario_card(scenario, target_ip, requested_by)
+
+    with tab3:
+        for scenario in grouped["general"]:
+            render_scenario_card(scenario, target_ip, requested_by)

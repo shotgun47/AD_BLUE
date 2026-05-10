@@ -2,6 +2,9 @@ import json
 import pandas as pd
 import streamlit as st
 
+import zipfile
+from pathlib import Path
+
 from api_client import (
     get_health,
     get_events,
@@ -11,6 +14,7 @@ from api_client import (
     get_latest_recon_summary,
 )
 from utils import safe_json_loads, normalize_matched_rules
+from metadata import get_event_meta
 
 
 def _count_detected_events(events):
@@ -36,36 +40,243 @@ def _count_detected_events(events):
     return count, high_or_more, rule_counter
 
 
-def _render_recon_tool_card(tool_name, title):
+# ------------------------------------------------------------------
+# 정찰 도구 카드 
+# ------------------------------------------------------------------
+
+def _safe_value(summary: dict, key: str, default=0):
+    value = summary.get(key, default)
+    if value is None:
+        return default
+    return value
+
+
+def _render_empty_card(title: str, message: str = "저장된 결과 없음"):
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.info(message)
+
+
+def _render_powerview_home_card():
     try:
-        summary = get_latest_recon_summary(tool_name)
+        summary = get_latest_recon_summary("powerview")
     except Exception as e:
         with st.container(border=True):
-            st.markdown(f"**{title}**")
+            st.markdown("**PowerView**")
             st.error(f"조회 실패: {e}")
         return
 
-    with st.container(border=True):
-        st.markdown(f"**{title}**")
+    if summary.get("result") == "empty":
+        _render_empty_card("PowerView")
+        return
 
-        if summary.get("result") == "empty":
-            st.info("저장된 결과 없음")
-            return
-
-        if summary.get("result") == "error":
+    if summary.get("result") == "error":
+        with st.container(border=True):
+            st.markdown("**PowerView**")
             st.error(summary.get("message", "조회 실패"))
-            return
+        return
 
-        # 도구별로 키가 달라도 일단 주요 값만 보여주기
-        display_items = list(summary.items())[:6]
+    with st.container(border=True):
+        st.markdown("**PowerView**")
+        st.caption("AD 객체/취약 설정 요약")
 
-        if not display_items:
-            st.info("summary 값이 비어 있습니다.")
-            return
+        c1, c2 = st.columns(2)
+        c1.metric("사용자", _safe_value(summary, "total_users"))
+        c2.metric("컴퓨터", _safe_value(summary, "total_computers"))
 
-        for key, value in display_items:
-            st.write(f"{key}: **{value}**")
+        c3, c4 = st.columns(2)
+        c3.metric("SPN 계정", _safe_value(summary, "spn_users_count"))
+        c4.metric("NoPreAuth", _safe_value(summary, "no_preauth_users_count"))
 
+        st.write(f"Domain Admins: **{_safe_value(summary, 'domain_admins_count')}**")
+        st.write(f"DnsAdmins: **{_safe_value(summary, 'dns_admins_count')}**")
+        st.write(f"Interesting ACLs: **{_safe_value(summary, 'interesting_acls_count')}**")
+
+
+def _render_pingcastle_home_card():
+    try:
+        summary = get_latest_recon_summary("pingcastle")
+    except Exception as e:
+        with st.container(border=True):
+            st.markdown("**PingCastle**")
+            st.error(f"조회 실패: {e}")
+        return
+
+    if summary.get("result") == "empty":
+        _render_empty_card("PingCastle")
+        return
+
+    if summary.get("result") == "error":
+        with st.container(border=True):
+            st.markdown("**PingCastle**")
+            st.error(summary.get("message", "조회 실패"))
+        return
+
+    with st.container(border=True):
+        st.markdown("**PingCastle**")
+        st.caption("AD HealthCheck 점수 · 낮을수록 양호")
+
+        c1, c2 = st.columns(2)
+        c1.metric("Global Score", _safe_value(summary, "global_score", "-"))
+        c2.metric("Anomaly", _safe_value(summary, "anomaly_score", "-"))
+
+        c3, c4 = st.columns(2)
+        c3.metric("Privileged", _safe_value(summary, "privileged_group_score", "-"))
+        c4.metric("Stale Objects", _safe_value(summary, "stale_objects_score", "-"))
+
+        st.write(f"점수 있는 Risk Rule: **{_safe_value(summary, 'risk_rule_positive_count', '-')}**")
+        st.write(f"10점 이상 Risk Rule: **{_safe_value(summary, 'risk_rule_high_point_count', '-')}**")
+        st.write(f"전체 Risk Rule: **{_safe_value(summary, 'risk_rule_total', '-')}**")
+
+
+BLOODHOUND_ROOT = Path("/data/bloodhound")
+
+
+def _latest_bloodhound_collection():
+    if not BLOODHOUND_ROOT.exists():
+        return None
+
+    dirs = sorted(
+        [d for d in BLOODHOUND_ROOT.iterdir() if d.is_dir()],
+        reverse=True,
+    )
+
+    for d in dirs:
+        if (d / "graph.html").exists():
+            return d
+
+    return None
+
+
+def _load_bloodhound_jsons_for_home(coll_dir: Path):
+    for z in coll_dir.glob("*.zip"):
+        try:
+            with zipfile.ZipFile(z) as zf:
+                zf.extractall(coll_dir)
+        except Exception:
+            pass
+
+    data = {
+        "users": [],
+        "groups": [],
+        "computers": [],
+        "domains": [],
+    }
+
+    for j in coll_dir.glob("*.json"):
+        for key in data.keys():
+            if j.name.endswith(f"_{key}.json"):
+                try:
+                    payload = json.loads(j.read_text(encoding="utf-8"))
+                    data[key] = payload.get("data", [])
+                except Exception:
+                    pass
+                break
+
+    return data
+
+
+def _bloodhound_home_summary(coll_dir: Path):
+    data = _load_bloodhound_jsons_for_home(coll_dir)
+
+    sid2name = {}
+    for arr in data.values():
+        for obj in arr:
+            sid = obj.get("ObjectIdentifier")
+            name = obj.get("Properties", {}).get("name", sid)
+            if sid:
+                sid2name[sid] = name
+
+    high_value_names = {
+        "DOMAIN ADMINS",
+        "ENTERPRISE ADMINS",
+        "SCHEMA ADMINS",
+        "ADMINISTRATORS",
+        "ACCOUNT OPERATORS",
+        "BACKUP OPERATORS",
+        "SERVER OPERATORS",
+        "PRINT OPERATORS",
+        "DNSADMINS",
+        "GROUP POLICY CREATOR OWNERS",
+        "DOMAIN CONTROLLERS",
+        "REMOTE DESKTOP USERS",
+    }
+
+    high_value_members = 0
+    high_value_groups = 0
+
+    for group in data["groups"]:
+        props = group.get("Properties", {})
+        group_name = props.get("name", "")
+        short_group_name = group_name.split("@")[0].upper()
+
+        if short_group_name not in high_value_names:
+            continue
+
+        members = group.get("Members", [])
+        if members:
+            high_value_groups += 1
+            high_value_members += len(members)
+
+    unconstrained_users = 0
+    for user in data["users"]:
+        props = user.get("Properties", {})
+        if props.get("unconstraineddelegation"):
+            unconstrained_users += 1
+
+    unconstrained_computers = 0
+    for computer in data["computers"]:
+        props = computer.get("Properties", {})
+        if props.get("unconstraineddelegation"):
+            unconstrained_computers += 1
+
+    return {
+        "collection": coll_dir.name,
+        "has_graph": (coll_dir / "graph.html").exists(),
+        "users": len(data["users"]),
+        "groups": len(data["groups"]),
+        "computers": len(data["computers"]),
+        "high_value_groups": high_value_groups,
+        "high_value_members": high_value_members,
+        "unconstrained_users": unconstrained_users,
+        "unconstrained_computers": unconstrained_computers,
+    }
+
+
+def _render_bloodhound_home_card():
+    coll_dir = _latest_bloodhound_collection()
+
+    if not coll_dir:
+        _render_empty_card("BloodHound", "graph.html이 포함된 컬렉션 없음")
+        return
+
+    try:
+        summary = _bloodhound_home_summary(coll_dir)
+    except Exception as e:
+        with st.container(border=True):
+            st.markdown("**BloodHound**")
+            st.error(f"분석 실패: {e}")
+        return
+
+    with st.container(border=True):
+        st.markdown("**BloodHound**")
+        st.caption("관계 기반 위험 요약")
+
+        c1, c2 = st.columns(2)
+        c1.metric("고가치 그룹 멤버", summary.get("high_value_members", 0))
+        c2.metric("고가치 그룹", summary.get("high_value_groups", 0))
+
+        c3, c4 = st.columns(2)
+        c3.metric("Unconstrained 사용자", summary.get("unconstrained_users", 0))
+        c4.metric("Unconstrained 컴퓨터", summary.get("unconstrained_computers", 0))
+
+        st.write(f"컬렉션: **{summary.get('collection', '-')}**")
+        st.write(f"그래프: **{'생성됨' if summary.get('has_graph') else '없음'}**")
+
+
+# ------------------------------------------------------------------
+# 홈 렌더링
+# ------------------------------------------------------------------
 
 def render_home():
     st.title("AD 공격/방어 시뮬레이션 랩")
@@ -170,25 +381,38 @@ def render_home():
             )
 
     with col_event:
-        st.markdown("### 이벤트 ID TOP (최근 한시간 기준)")
+        st.markdown("### 이벤트 TOP (최근 1시간 기준)")
 
         if not events:
             st.info("이벤트가 없습니다.")
         else:
-            df = pd.DataFrame(events)
-            if "event_id" in df.columns:
-                event_summary = (
-                    df["event_id"]
-                    .fillna("-")
-                    .astype(str)
-                    .value_counts()
-                    .head(5)
-                    .reset_index()
-                )
-                event_summary.columns = ["event_id", "count"]
-                st.dataframe(event_summary, use_container_width=True, hide_index=True)
-            else:
-                st.info("event_id 컬럼이 없습니다.")
+            rows = []
+
+            for item in events:
+                event_id = str(item.get("event_id", "-"))
+                normalized = safe_json_loads(item.get("normalized_json"))
+                event_type = normalized.get("event_type", "unknown")
+                meta = get_event_meta(event_id, event_type)
+
+                rows.append({
+                    "이벤트 ID": event_id,
+                    "이벤트 타입": meta.get("label"),
+                    "분류": meta.get("category"),
+                    "설명": meta.get("description"),
+                })
+
+            event_df = pd.DataFrame(rows)
+
+            event_summary = (
+                event_df
+                .groupby(["이벤트 ID", "이벤트 타입", "분류", "설명"], dropna=False)
+                .size()
+                .reset_index(name="건수")
+                .sort_values("건수", ascending=False)
+                .head(5)
+            )
+
+            st.dataframe(event_summary, use_container_width=True, hide_index=True)
 
     st.divider()
 
@@ -196,9 +420,12 @@ def render_home():
     st.markdown("### 정찰 도구 최신 결과")
 
     r1, r2, r3 = st.columns(3)
+
     with r1:
-        _render_recon_tool_card("powerview", "PowerView")
+        _render_powerview_home_card()
+
     with r2:
-        _render_recon_tool_card("pingcastle", "PingCastle")
+        _render_pingcastle_home_card()
+
     with r3:
-        _render_recon_tool_card("bloodhound", "BloodHound")
+        _render_bloodhound_home_card()

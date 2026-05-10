@@ -7,6 +7,7 @@ from api_client import get_events, delete_all_events, delete_event, get_event_sa
 from utils import safe_json_loads, normalize_matched_rules, as_list, unique_keep_order, rule_label
 from components import severity_badge
 from config import VICTIM_URL
+from metadata import get_event_meta, get_event_type_label, get_attack_tactic_label
 
 
 SEVERITY_RANK = {
@@ -206,24 +207,28 @@ def render_defense():
                 summary_rows = []
 
                 for item in data:
+                    event_id = str(item.get("event_id", "-"))
                     normalized = safe_json_loads(item.get("normalized_json"))
+                    event_type = normalized.get("event_type", "unknown")
+                    meta = get_event_meta(event_id, event_type)
+
                     summary_rows.append({
-                        "event_id": str(item.get("event_id", "-")),
-                        "event_type": normalized.get("event_type", "-"),
+                        "이벤트 ID": event_id,
+                        "이벤트 타입": meta.get("label"),
+                        "분류": meta.get("category"),
+                        "설명": meta.get("description"),
                     })
 
                 summary_df = pd.DataFrame(summary_rows)
 
                 summary_df = (
                     summary_df
-                    .groupby(["event_id", "event_type"], dropna=False)
+                    .groupby(["이벤트 ID", "이벤트 타입", "분류", "설명"], dropna=False)
                     .size()
-                    .reset_index(name="count")
-                    .sort_values("count", ascending=False)
+                    .reset_index(name="건수")
+                    .sort_values("건수", ascending=False)
                     .head(10)
                 )
-
-                summary_df.columns = ["이벤트 ID", "이벤트 타입", "건수"]
 
                 st.dataframe(summary_df, use_container_width=True, hide_index=True)
             else:
@@ -406,6 +411,8 @@ def render_defense():
                 expander_title = f"🔎 ID {event_id}   |   {computer_name}   |   {rule_summary}   |   {event_time}"
 
             with st.expander(expander_title, expanded=False):
+                st.caption(meta.get("description"))
+                
                 top_left, top_right = st.columns([9, 1])
 
                 with top_left:

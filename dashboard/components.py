@@ -195,6 +195,7 @@ def render_scenario_card(scenario: dict, target_ip: str, requested_by: str):
     scenario_id = scenario["scenario_id"]
     params_schema = scenario.get("params_schema") or []
     scenario_type = scenario.get("scenario_type", "general")
+    description = scenario.get("description") or "설명이 등록되지 않은 시나리오입니다."
 
     style_info = SCENARIO_TYPE_STYLE_MAP.get(
         scenario_type,
@@ -236,6 +237,8 @@ def render_scenario_card(scenario: dict, target_ip: str, requested_by: str):
                 unsafe_allow_html=True
             )
 
+        st.caption(description)
+        
         extra_params = {}
 
         if params_schema:
