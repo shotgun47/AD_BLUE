@@ -20,7 +20,7 @@ def run_scenario(req):
 
     if BACKEND_IP and not _params.get("backend_url"):
         _params["backend_url"] = BACKEND_IP
-    
+
     body = {
         "scenario_id": req.scenario_id,
         "request_id": run_id,

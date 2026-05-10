@@ -128,6 +128,10 @@ def _init_ai_chat_state():
         st.session_state.ai_tools_cache    = None
     if "ai_selected_model" not in st.session_state:
         st.session_state.ai_selected_model = list(MODELS.keys())[0]
+    if "ai_processing" not in st.session_state:
+        st.session_state.ai_processing = False
+    if "ai_pending_input" not in st.session_state:
+        st.session_state.ai_pending_input = ""
 
 
 # ------------------------------------------------------------------
@@ -277,27 +281,73 @@ def render_ai_chat():
             st.rerun()
 
     with left:
+        # 1. 대화 히스토리 (항상 입력창 위)
         for msg in st.session_state.ai_chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["text"])
 
-        user_input = st.chat_input("질문을 입력하세요. 예: 최근 보안 로그 20건 보여줘")
-
-        if user_input:
-            st.session_state.ai_chat_history.append({"role": "user", "text": user_input})
-
-            with st.chat_message("user"):
-                st.markdown(user_input)
+        # 2. 처리 중이면 여기서 실행 (입력창 위)
+        if st.session_state.ai_processing:
+            pending_input = st.session_state.ai_pending_input
+            st.session_state.ai_processing = False
+            st.session_state.ai_pending_input = ""
 
             with st.chat_message("assistant"):
                 with st.spinner(f"{selected_label} 처리 중..."):
                     try:
-                        answer = run_agent_loop(user_input, model_id)
+                        answer = run_agent_loop(pending_input, model_id)
                     except Exception as exc:
                         answer = f"❌ 오류: {exc}"
-
                 st.markdown(answer)
                 st.session_state.ai_chat_history.append({"role": "assistant", "text": answer})
+
+            st.rerun()
+
+        # 3. 예시 프롬프트
+        with st.expander("💡 예시 프롬프트", expanded=False):
+            prompt_categories = {
+                "🔍 보안 로그": [
+                    "최근 보안 로그 30건 보여줘",
+                    "탐지된 이벤트만 필터링해서 보여줘",
+                    "Sysmon 이벤트 ID 1(프로세스 생성)만 보여줘",
+                ],
+                "⚔️ 공격 시나리오": [
+                    "사용 가능한 공격 시나리오 목록 보여줘",
+                    "AS-REP Roasting 공격 실행해줘",
+                    "최근 시나리오 실행 이력 보여줘",
+                ],
+                "🩸 BloodHound": [
+                    "BloodHound 수집 실행해줘",
+                    "최근 BloodHound 컬렉션 목록 보여줘",
+                    "최근 BloodHound 결과 분석해줘",
+                    "BloodHound HTML 그래프 생성해줘",
+                ],
+                "🕵️ 정찰": [
+                    "PingCastle AD 헬스체크 실행해줘",
+                    "PowerView로 AD 정찰 실행해줘",
+                ],
+            }
+
+            for category, prompts in prompt_categories.items():
+                st.markdown(f"**{category}**")
+                cols = st.columns(len(prompts))
+                for col, prompt in zip(cols, prompts):
+                    with col:
+                        if st.button(prompt, key=f"ex_{prompt}", use_container_width=True):
+                            st.session_state["ai_pending_prompt"] = prompt
+
+        # 4. 채팅 입력 (항상 최하단)
+        user_input = st.chat_input("질문을 입력하세요. 예: 최근 보안 로그 20건 보여줘")
+
+        pending = st.session_state.pop("ai_pending_prompt", None)
+        if pending and not user_input:
+            user_input = pending
+
+        if user_input:
+            st.session_state.ai_chat_history.append({"role": "user", "text": user_input})
+            st.session_state.ai_processing = True
+            st.session_state.ai_pending_input = user_input
+            st.rerun()
 
 
 

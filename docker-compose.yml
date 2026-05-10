@@ -32,29 +32,27 @@ services:
       - adlab-net
 
   mcp:
-      build:
-        context: ./mcp
-        dockerfile: Dockerfile
-      container_name: adlab-mcp
-      ports:
-        - "9000:9000"
-      volumes:
-        - ./data:/data
-      environment:
-        - BACKEND_URL=http://backend:8000
-        - DB_PATH=/data/events.db
-        - MCP_TRANSPORT=http
-        - ATTACK_RUNNER_URL=${ATTACK_RUNNER_URL}
-        - ATTACK_RUNNER_TOKEN=${ATTACK_RUNNER_TOKEN}
-        - VICTIM_URL=${VICTIM_URL}
-        - ATTACK_REQUESTED_BY=${ATTACK_REQUESTED_BY}
-      depends_on:
-        - backend
-      networks:
-        - adlab-net
-      restart: unless-stopped
-
-
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    container_name: adlab-mcp
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./data:/data
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - DB_PATH=/data/events.db
+      - MCP_TRANSPORT=http
+      - ATTACK_RUNNER_URL=${ATTACK_RUNNER_URL}
+      - ATTACK_RUNNER_TOKEN=${ATTACK_RUNNER_TOKEN}
+      - VICTIM_URL=${VICTIM_URL}
+      - ATTACK_REQUESTED_BY=${ATTACK_REQUESTED_BY}
+    depends_on:
+      - backend
+    networks:
+      - adlab-net
+    restart: unless-stopped
 
   dashboard:
     build: ./dashboard
@@ -70,8 +68,6 @@ services:
       - .env
     environment:
       - BACKEND_URL=http://backend:8000
-      # - ATTACK_REQUESTED_BY=${ATTACK_REQUESTED_BY}
-      # - VICTIM_URL=${VICTIM_URL}
       - MCP_URL=http://mcp:9000/mcp
     networks:
       - adlab-net
