@@ -9,8 +9,8 @@ def render_sidebar():
     with st.sidebar:
         return option_menu(
             "메뉴",
-            ["홈", "방어", "공격", "정찰", "AI Chat"],
-            icons=["house", "shield", "crosshair", "diagram-3", "robot"],
+            ["홈", "방어", "공격", "정찰", "리포트", "AI Chat"],
+            icons=["house", "shield", "crosshair", "diagram-3", "file-earmark-text", "robot"],
             menu_icon="grid",
             default_index=0,
             styles={

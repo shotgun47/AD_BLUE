@@ -6,6 +6,9 @@ from datetime import datetime, timedelta
 from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
 
+import logging
+logger = logging.getLogger("event_save_policy")
+
 SAVE_EVENT_LOCK = threading.Lock()
 
 EVENT_SAVE_MODE = os.getenv("EVENT_SAVE_MODE", "lab").lower()
@@ -40,8 +43,6 @@ IMPORTANT_EVENT_IDS = {
 
 
 
-
-
 def _get_detected(bundle: dict) -> bool:
     detection = bundle.get("detection") or {}
     return bool(detection.get("detected"))
@@ -49,7 +50,25 @@ def _get_detected(bundle: dict) -> bool:
 
 def _get_event_id(event) -> str:
     event_id = getattr(event, "event_id", None)
-    return str(event_id) if event_id is not None else ""
+
+    if event_id is None:
+        return ""
+
+    text = str(event_id).strip()
+
+    # Logstash 치환 실패값 방지
+    if text.startswith("%{") and text.endswith("}"):
+        return ""
+
+    # "1.0" 같은 형태 방지
+    if text.endswith(".0"):
+        text = text[:-2]
+
+    # "01" 같은 형태 방지
+    if text.isdigit():
+        text = str(int(text))
+
+    return text
 
 
 def should_store_event(event, bundle: dict) -> bool:
@@ -122,17 +141,29 @@ def save_event(event):
         recent_events = get_recent_events_for_detection(conn, event.event_time)
         bundle = build_event_bundle(event, recent_events=recent_events)
 
+        normalized_event_id = _get_event_id(event)
 
         if not should_store_event(event, bundle):
+            logger.warning(
+                "event skipped by save policy: mode=%s raw_event_id=%r normalized_event_id=%r provider=%r channel=%r detected=%r",
+                EVENT_SAVE_MODE,
+                getattr(event, "event_id", None),
+                _get_event_id(event),
+                getattr(event, "provider", None),
+                getattr(event, "channel", None),
+                _get_detected(bundle),
+            )
+
+
             conn.close()
             return {
                 "result": "skipped",
                 "mode": EVENT_SAVE_MODE,
-                "event_id": _get_event_id(event),
+                "event_id": normalized_event_id,
+                "raw_event_id": getattr(event, "event_id", None),
                 "detected": _get_detected(bundle),
                 "reason": "event did not match save policy",
             }
-
 
         cur.execute("""
             INSERT INTO events (

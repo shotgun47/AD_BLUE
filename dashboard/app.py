@@ -7,6 +7,7 @@ from views.defense import render_defense
 from views.attack import render_attack
 from views.recon import render_recon
 from views.ai_chat import render_ai_chat
+from views.report import render_report
 
 
 st.set_page_config(page_title="AD Simulation Lab", layout="wide")
@@ -32,3 +33,5 @@ elif menu == "정찰":
     render_recon()
 elif menu == "AI Chat":
     render_ai_chat()
+elif menu == "리포트":
+    render_report()
