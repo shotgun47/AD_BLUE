@@ -1208,6 +1208,217 @@ def run_pingcastle_healthcheck(
     return _run_scenario_via_backend(scenario_id=scenario_id, params=params)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 통합 정찰 워크플로우
+# ══════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+def run_full_recon_workflow(
+    target_ip: str = "",
+    requested_by: str = "",
+    winrm_user: str = "lab_admin",
+    winrm_pass: str = "",
+    domain_name: str = "lab.local",
+    bloodhound_username: str = "",
+    bloodhound_password: str = "",
+    domain_controller: str = "",
+    nameserver: str = "",
+    bloodhound_collection_method: str = "Default",
+    use_ldaps: bool = False,
+    run_powerview: bool = True,
+    run_pingcastle: bool = True,
+    run_bloodhound: bool = True,
+) -> Dict[str, Any]:
+    """
+    Red Team용: PowerView, PingCastle, BloodHound 정찰을 순서대로 실행합니다.
+
+    이 도구는 대시보드 리포트 생성을 위한 사전 정찰 워크플로우입니다.
+    PowerView/PingCastle은 backend /scenario/run을 통해 Attack Runner 시나리오로 실행하고,
+    BloodHound는 bloodhound-python 수집 후 분석 및 HTML 그래프 생성을 시도합니다.
+
+    Inputs:
+    - target_ip    : PowerView/PingCastle을 실행할 Windows 호스트 IP. 비우면 VICTIM_URL 사용.
+    - requested_by : 실행자. 비우면 ATTACK_REQUESTED_BY 사용.
+    - winrm_user   : WinRM 접속 사용자.
+    - winrm_pass   : WinRM 접속 비밀번호.
+    - domain_name  : AD 도메인. 기본 lab.local.
+    - bloodhound_username : BloodHound LDAP 수집용 도메인 계정.
+    - bloodhound_password : BloodHound LDAP 수집용 비밀번호.
+    - domain_controller   : DC 호스트명/FQDN 또는 IP. 선택.
+    - nameserver          : DNS 서버 IP. 보통 DC IP. 선택.
+    - bloodhound_collection_method : BloodHound 수집 범위. 기본 Default.
+    - use_ldaps           : LDAPS 사용 여부.
+    - run_powerview       : PowerView 실행 여부.
+    - run_pingcastle      : PingCastle 실행 여부.
+    - run_bloodhound      : BloodHound 실행 여부.
+
+    Returns:
+    - 각 단계별 실행 결과와 전체 성공/실패 요약.
+    """
+    final_target_ip = target_ip or DEFAULT_TARGET_IP
+    final_requested_by = requested_by or DEFAULT_REQUESTED_BY
+
+    steps: Dict[str, Any] = {}
+
+    # 공통 필수값 체크
+    if (run_powerview or run_pingcastle) and not final_target_ip:
+        return {
+            "result": "error",
+            "message": "target_ip가 필요합니다. VICTIM_URL도 비어 있습니다.",
+        }
+
+    if (run_powerview or run_pingcastle) and not final_requested_by:
+        return {
+            "result": "error",
+            "message": "requested_by가 필요합니다. ATTACK_REQUESTED_BY도 비어 있습니다.",
+        }
+
+    if (run_powerview or run_pingcastle) and not winrm_pass:
+        return {
+            "result": "error",
+            "message": "winrm_pass는 PowerView/PingCastle 실행에 필요합니다.",
+        }
+
+    if run_bloodhound and (not bloodhound_username or not bloodhound_password):
+        return {
+            "result": "error",
+            "message": "BloodHound 실행에는 bloodhound_username, bloodhound_password가 필요합니다.",
+        }
+
+    # 1. PowerView
+    if run_powerview:
+        try:
+            steps["powerview"] = run_powerview_recon(
+                target_ip=final_target_ip,
+                requested_by=final_requested_by,
+                winrm_user=winrm_user,
+                winrm_pass=winrm_pass,
+                domain_name=domain_name,
+            )
+        except Exception as exc:
+            steps["powerview"] = {
+                "result": "error",
+                "message": f"PowerView 실행 중 예외 발생: {exc}",
+            }
+    else:
+        steps["powerview"] = {
+            "result": "skipped",
+            "message": "run_powerview=False",
+        }
+
+    # 2. PingCastle
+    if run_pingcastle:
+        try:
+            steps["pingcastle"] = run_pingcastle_healthcheck(
+                target_ip=final_target_ip,
+                requested_by=final_requested_by,
+                winrm_user=winrm_user,
+                winrm_pass=winrm_pass,
+                domain_name=domain_name,
+            )
+        except Exception as exc:
+            steps["pingcastle"] = {
+                "result": "error",
+                "message": f"PingCastle 실행 중 예외 발생: {exc}",
+            }
+    else:
+        steps["pingcastle"] = {
+            "result": "skipped",
+            "message": "run_pingcastle=False",
+        }
+
+    # 3. BloodHound 수집 + 분석 + HTML 생성
+    if run_bloodhound:
+        try:
+            bh_collect = run_bloodhound_collection(
+                domain=domain_name,
+                username=bloodhound_username,
+                password=bloodhound_password,
+                domain_controller=domain_controller,
+                nameserver=nameserver,
+                collection_method=bloodhound_collection_method,
+                use_ldaps=use_ldaps,
+            )
+            steps["bloodhound_collection"] = bh_collect
+
+            if bh_collect.get("result") == "ok":
+                # 방금 생성된 output_dir의 폴더명을 collection_name으로 사용
+                output_dir = bh_collect.get("output_dir", "")
+                collection_name = os.path.basename(output_dir) if output_dir else ""
+
+                try:
+                    steps["bloodhound_analysis"] = analyze_bloodhound_collection(
+                        collection_name=collection_name
+                    )
+                except Exception as exc:
+                    steps["bloodhound_analysis"] = {
+                        "result": "error",
+                        "message": f"BloodHound 분석 중 예외 발생: {exc}",
+                    }
+
+                try:
+                    steps["bloodhound_html"] = generate_bloodhound_html(
+                        collection_name=collection_name
+                    )
+                except Exception as exc:
+                    steps["bloodhound_html"] = {
+                        "result": "error",
+                        "message": f"BloodHound HTML 생성 중 예외 발생: {exc}",
+                    }
+            else:
+                steps["bloodhound_analysis"] = {
+                    "result": "skipped",
+                    "message": "BloodHound 수집 실패로 분석 생략",
+                }
+                steps["bloodhound_html"] = {
+                    "result": "skipped",
+                    "message": "BloodHound 수집 실패로 HTML 생성 생략",
+                }
+
+        except Exception as exc:
+            steps["bloodhound_collection"] = {
+                "result": "error",
+                "message": f"BloodHound 실행 중 예외 발생: {exc}",
+            }
+    else:
+        steps["bloodhound_collection"] = {
+            "result": "skipped",
+            "message": "run_bloodhound=False",
+        }
+
+    # 전체 상태 계산
+    failed_steps = []
+    skipped_steps = []
+
+    for name, payload in steps.items():
+        status = payload.get("result") if isinstance(payload, dict) else None
+        if status == "error":
+            failed_steps.append(name)
+        elif status == "skipped":
+            skipped_steps.append(name)
+
+    overall_result = "ok" if not failed_steps else "partial_error"
+
+    return {
+        "result": overall_result,
+        "message": (
+            "통합 정찰 워크플로우가 완료되었습니다."
+            if overall_result == "ok"
+            else "일부 정찰 단계에서 오류가 발생했습니다."
+        ),
+        "target_ip": final_target_ip,
+        "requested_by": final_requested_by,
+        "domain_name": domain_name,
+        "failed_steps": failed_steps,
+        "skipped_steps": skipped_steps,
+        "steps": steps,
+        "next_action": (
+            "대시보드의 정찰 탭 또는 리포트 탭에서 최신 결과를 확인하세요. "
+            "PowerView/PingCastle은 시나리오가 비동기 실행될 수 있으므로 완료 후 새로고침이 필요할 수 있습니다."
+        ),
+    }
+
+
 if __name__ == "__main__":
     # MCP_TRANSPORT 환경변수로 전송 방식 선택
     #   - "http"  : streamable-http (대시보드 통합 / 팀 공용 배포 모드)

@@ -151,6 +151,44 @@ def _list_bloodhound_collections():
     )
     return [(d.name, d / "graph.html") for d in dirs if (d / "graph.html").exists()]
 
+def _extract_report_defaults(pv_summary: dict, pv_result: dict, pc_summary: dict) -> dict:
+    """
+    최신 정찰 결과에서 리포트 표지용 기본값을 추출한다.
+    사용자가 직접 수정할 수 있도록 text_input의 기본값으로만 사용한다.
+    """
+
+    pv_data = pv_result if isinstance(pv_result, dict) else {}
+    pc_data = pc_summary if isinstance(pc_summary, dict) else {}
+
+    # PowerView result.json 우선, 없으면 PingCastle summary 사용
+    domain = (
+        pv_data.get("domain")
+        or pc_data.get("domain")
+        or st.session_state.get("report_domain")
+        or "lab.local"
+    )
+
+    target_ip = (
+        pv_data.get("target_host")
+        or pc_data.get("target_ip")
+        or st.session_state.get("last_target_ip")
+        or st.session_state.get("report_target_ip")
+        or ""
+    )
+
+    requested_by = (
+        pv_data.get("requested_by")
+        or st.session_state.get("last_requested_by")
+        or st.session_state.get("report_requested_by")
+        or ""
+    )
+
+    return {
+        "domain": str(domain or ""),
+        "target_ip": str(target_ip or ""),
+        "requested_by": str(requested_by or ""),
+    }
+
 
 # ------------------------------------------------------------------
 # 인쇄용 CSS / 표지
@@ -574,6 +612,31 @@ def render_report():
     # 인쇄용 CSS
     _inject_print_css()
 
+    # 데이터 수집
+    pv_summary = _safe_get_summary("powerview")
+    pv_result = _safe_get_result("powerview")
+    pc_summary = _safe_get_summary("pingcastle")
+    pc_result = _safe_get_result("pingcastle")
+    bh_collections = _list_bloodhound_collections()
+
+    defaults = _extract_report_defaults(
+        pv_summary=pv_summary,
+        pv_result=pv_result,
+        pc_summary=pc_summary,
+    )
+
+    # 2. text_input은 key가 있으면 session_state 값이 우선 적용되므로,
+    #    최초 진입 또는 새로고침 시 기본값을 명시적으로 채워준다.
+    if "report_domain" not in st.session_state:
+        st.session_state["report_domain"] = defaults["domain"]
+
+    if "report_target_ip" not in st.session_state:
+        st.session_state["report_target_ip"] = defaults["target_ip"]
+
+    if "report_requested_by" not in st.session_state:
+        st.session_state["report_requested_by"] = defaults["requested_by"]
+
+
     # 상단 입력 / 액션
     with st.container(border=True):
         c1, c2, c3 = st.columns([3, 3, 2])
@@ -603,12 +666,6 @@ def render_report():
         with c_print:
             st.caption("PDF 저장이 필요하면 브라우저 인쇄(Ctrl+P) → 'PDF로 저장' 을 사용하세요.")
 
-    # 데이터 수집
-    pv_summary = _safe_get_summary("powerview")
-    pv_result = _safe_get_result("powerview")
-    pc_summary = _safe_get_summary("pingcastle")
-    pc_result = _safe_get_result("pingcastle")
-    bh_collections = _list_bloodhound_collections()
 
     # 표지
     _render_cover(domain, target_ip, requested_by)

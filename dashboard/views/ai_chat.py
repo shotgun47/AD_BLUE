@@ -328,6 +328,7 @@ def render_ai_chat():
                 "🕵️ 정찰": [
                     "PingCastle AD 헬스체크 실행해줘",
                     "PowerView로 AD 정찰 실행해줘",
+                    "PowerView, PingCastle, BloodHound 통합 정찰 워크플로우 실행해줘",
                 ],
             }
 
