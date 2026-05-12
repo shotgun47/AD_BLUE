@@ -34,7 +34,7 @@ REQUESTED_BY="$(get_param requested_by)"
 WINRM_USER="$(get_param winrm_user)"
 WINRM_PASS="$(get_param winrm_pass)"
 DOMAIN_NAME="$(get_param domain_name "lab.local")"
-BACKEND_URL="$(get_param backend_url "http://backend:8000")"
+BACKEND_URL="$(get_param backend_url "${BACKEND_URL:-}")"
 
 if [ -z "$TARGET_IP" ] || [ -z "$WINRM_USER" ] || [ -z "$WINRM_PASS" ]; then
   echo "[ERROR] required params missing"
@@ -52,7 +52,7 @@ TMP_CMDS="/tmp/powerview_recon_${RUN_ID}.txt"
 
 cat > "$TMP_CMDS" <<EOF
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-& "C:\\Tools\\PowerView\\pv_AD_recon.ps1" -DomainUser "$WINRM_USER" -DomainPass "$WINRM_PASS" -Domain "$DOMAIN_NAME" -BackendUrl "$BACKEND_URL" -TargetHost "$TARGET_IP" -RequestedBy "$REQUESTED_BY"
+& "C:\\Tools\\PowerView\\pv_AD_recon.ps1" -DomainUser "$WINRM_USER" -DomainPass "$WINRM_PASS" -Domain "$DOMAIN_NAME" -BackendUrl "$BACKEND_URL" -TargetHost "$TARGET_IP" -RequestedBy "$REQUESTED_BY" -RunId "$RUN_ID"
 exit
 EOF
 

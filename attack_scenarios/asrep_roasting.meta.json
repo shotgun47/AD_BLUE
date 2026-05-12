@@ -1,0 +1,19 @@
+{
+  "label": "AS-REP Roasting 공격",
+  "description": "Kerberos 사전 인증이 비활성화된 계정을 대상으로 AS-REQ 요청을 발생시켜 AS-REP Roasting 관련 4768 이벤트와 탐지 룰을 검증합니다.",
+  "scenario_type": "real_attack",
+  "params_schema": [
+       {
+           "name": "domain_name",
+           "label": "도메인 네임 (예: lab.local)",
+           "type": "text",
+           "default": "lab.local"
+        },
+        {
+           "name": "target_user",
+           "label": "타겟 사용자명 (예: victim1)",
+           "type": "text",
+           "default": "victim1"
+        }
+    ]
+}

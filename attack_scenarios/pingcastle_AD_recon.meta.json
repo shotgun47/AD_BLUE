@@ -1,0 +1,29 @@
+{
+  "label": "PingCastle - AD 정찰(backend 저장 테스트 )",
+  "scenario_type": "tools",
+  "params_schema": [
+    {
+      "name": "winrm_user",
+      "label": "WinRM 사용자",
+      "type": "text",
+      "required": true,
+      "default": "lab_admin",
+      "help": "예: lab_admin (Domain Admins 권한 필요)"
+    },
+    {
+      "name": "winrm_pass",
+      "label": "WinRM 비밀번호",
+      "type": "password",
+      "required": true,
+      "help": "관리자 계정 비밀번호"
+    },
+    {
+      "name": "domain_name",
+      "label": "평가 대상 도메인",
+      "type": "text",
+      "required": false,
+      "default": "lab.local",
+      "help": "예: lab.local"
+    }
+  ]
+}

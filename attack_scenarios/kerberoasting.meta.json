@@ -1,0 +1,25 @@
+{
+  "label": "Kerberoasting 공격",
+  "description": "SPN이 등록된 서비스 계정을 대상으로 Kerberos TGS 요청을 발생시켜 4769 이벤트 기반 Kerberoasting 흔적을 확인합니다.",
+  "scenario_type": "real_attack",
+  "params_schema": [
+    {
+      "name": "domain_name",
+      "label": "도메인 네임 (예: lab.local)",
+      "type": "text",
+      "default": "lab.local"
+    },
+    {
+      "name": "attacker_user",
+      "label": "티켓을 요청할 일반 사용자명 (예: victim1)",
+      "type": "text",
+      "default": "victim1"
+    },
+    {
+      "name": "attacker_pass",
+      "label": "일반 사용자 계정 비밀번호",
+      "type": "text",
+      "default": "password123!"
+    }
+  ]
+}

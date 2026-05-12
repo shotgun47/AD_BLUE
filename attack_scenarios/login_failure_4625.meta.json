@@ -1,0 +1,47 @@
+{
+  "label": "4625 로그인 실패 / 실패 급증",
+  "description": "대상 호스트에 잘못된 인증 시도를 발생시켜 Windows 4625 로그인 실패 이벤트를 생성하고, 반복 실패 시 로그인 실패 급증 탐지 룰을 검증합니다.",
+  "scenario_type": "detection_test",
+  "params_schema": [
+    {
+      "name": "domain",
+      "label": "도메인",
+      "type": "text",
+      "required": false,
+      "default": "LAB",
+      "help": "도메인 계정이면 LAB, 로컬 계정이면 비워둠"
+    },
+    {
+      "name": "username",
+      "label": "사용자명",
+      "type": "text",
+      "required": true,
+      "default": "fakeuser",
+      "help": "로그인 실패를 발생시킬 대상 사용자명"
+    },
+    {
+      "name": "password",
+      "label": "비밀번호",
+      "type": "password",
+      "required": true,
+      "default": "WrongPassword123!",
+      "help": "일부러 틀린 비밀번호를 입력"
+    },
+    {
+      "name": "attempts",
+      "label": "시도 횟수",
+      "type": "number",
+      "required": true,
+      "default": 1,
+      "help": "로그인 실패 반복 횟수. 너무 많이 시도하면 문제생길수도 있음. 적당히"
+    },
+    {
+      "name": "sleep_sec",
+      "label": "시도 간격(초)",
+      "type": "number",
+      "required": true,
+      "default": 1,
+      "help": "시도 사이 대기 시간"
+    }
+  ]
+}

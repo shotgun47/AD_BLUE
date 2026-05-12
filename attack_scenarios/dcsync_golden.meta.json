@@ -1,0 +1,31 @@
+{
+  "label": "DCSync & Golden Ticket 공격",
+  "description": "Golden Ticket 공격 흐름을 재현하거나 관련 로그 발생 여부를 확인하기 위한 시나리오입니다. Kerberos 인증 요청, 특권 로그온, 관리자 계정 사용 흔적을 함께 확인합니다.",
+  "scenario_type": "real_attack",
+  "params_schema": [
+    {
+      "name": "domain_name",
+      "label": "도메인 네임",
+      "type": "text",
+      "default": "lab.local"
+    },
+    {
+      "name": "admin_user",
+      "label": "탈취한 관리자 계정명",
+      "type": "text",
+      "default": "lab_admin"
+    },
+    {
+      "name": "admin_pass",
+      "label": "탈취한 관리자 비밀번호",
+      "type": "text",
+      "default": "AdminP@ss123!"
+    },
+    {
+      "name": "fake_user",
+      "label": "위조할 권한 계정 (Golden Ticket 적용 대상)",
+      "type": "text",
+      "default": "Administrator"
+    }
+  ]
+}

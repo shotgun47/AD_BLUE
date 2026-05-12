@@ -7,6 +7,7 @@ if [ -z "$PARAMS_JSON" ]; then
   PARAMS_JSON='{}'
 fi
 
+
 get_param() {
   local key="$1"
   local default_value="${2:-}"

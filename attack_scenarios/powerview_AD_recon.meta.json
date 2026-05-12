@@ -1,0 +1,28 @@
+{
+  "label": "PowerView - AD 정찰",
+  "scenario_type": "tools",
+  "params_schema": [
+    {
+      "name": "winrm_user",
+      "label": "WinRM 사용자",
+      "type": "text",
+      "required": true,
+      "help": "예: LAB\\victim3"
+    },
+    {
+      "name": "winrm_pass",
+      "label": "WinRM 비밀번호",
+      "type": "password",
+      "required": true,
+      "help": "원격 PowerShell 접속 비밀번호"
+    },
+    {
+      "name": "domain_name",
+      "label": "도메인 이름",
+      "type": "text",
+      "required": false,
+      "default": "lab.local",
+      "help": "예: lab.local"
+    }
+  ]
+}
