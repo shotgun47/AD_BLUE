@@ -639,3 +639,85 @@ rules:
     response_guide:
       - 타겟 계정의 암호 변경 및 보안 강화
       - 도메인 컨트롤러 로그 확인을 통한 해시 탈취 여부 조사
+
+      # RULE-066: 명시적 자격 증명을 사용한 로그온 (RunAs 등)
+  - rule_id: RULE-066
+    name: 명시적 자격 증명을 사용한 로그온 (RunAs)
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4648"
+    severity: medium
+    score: 45
+    attack:
+      tactic: Lateral Movement
+      technique: T1550
+    response_guide:
+      - 실행된 프로세스와 대상 계정이 실제 업무와 연관된 것인지 확인
+      - 원격 서버 관리 목적으로 비인가된 RunAs 사용 여부 점검
+
+  # RULE-067: Kerberos 사전 인증 실패 (브루트포스 의심)
+  - rule_id: RULE-067
+    name: Kerberos 사전 인증 실패 (Pre-Auth Failure)
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4771"
+    severity: low
+    score: 20
+    attack:
+      tactic: Credential Access
+      technique: T1110.003
+    response_guide:
+      - 동일 계정에서 반복 발생 시 브루트 포스 또는 패스워드 스프레이 공격 의심
+      - 실패 사유 코드(Result Code)를 분석하여 계정 잠김 여부 확인
+
+  # RULE-068: Kerberos 서비스 티켓 요청 (TGS 요청)
+  - rule_id: RULE-068
+    name: Kerberos 서비스 티켓(TGS) 요청 탐지
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4769"
+    severity: informational
+    score: 10
+    attack:
+      tactic: Credential Access
+      technique: T1558.003
+    response_guide:
+      - 암호화 유형(Ticket Encryption Type)이 RC4(0x17)인 경우 Kerberoasting 공격 의심
+      - 단일 계정이나 특정 소스 IP에서의 비정상적으로 잦은 요청 확인
+
+  # RULE-069: 네트워크 로그온 성공 (Logon Type 3)
+  - rule_id: RULE-069
+    name: 네트워크 로그온 성공 (Type 3)
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4624"
+      logon_type: "3"
+    severity: low
+    score: 15
+    attack:
+      tactic: Lateral Movement
+      technique: T1021.002
+    response_guide:
+      - SMB 공유 폴더 접근이나 원격 RPC 호출이 정상적인지 확인
+      - 비인가된 워크스테이션에서 서버 자원으로의 접근 여부 점검
+
+  # RULE-070: 네트워크 로그온 실패 (Logon Type 3)
+  - rule_id: RULE-070
+    name: 네트워크 로그온 실패 (Type 3)
+    type: single_event
+    enabled: true
+    match:
+      event_id: "4625"
+      logon_type: "3"
+    severity: medium
+    score: 30
+    attack:
+      tactic: Credential Access
+      technique: T1110
+    response_guide:
+      - 원격에서 네트워크 공유를 통한 비밀번호 무차별 대입 공격 의심
+      - 소스 IP(source_ip)에 대한 즉각적인 접근 제한 및 조사 실시
