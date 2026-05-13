@@ -1,26 +1,15 @@
-import json
-
 import pandas as pd
 import streamlit as st
+from datetime import timedelta
 
 from api_client import get_events, delete_all_events, delete_event, get_event_save_policy
 from utils import safe_json_loads, normalize_matched_rules, as_list, unique_keep_order, rule_label
-from components import severity_badge
+from components import severity_badge, severity_rank, render_badge_table
 from config import VICTIM_URL
-from metadata import get_event_meta, get_event_type_label, get_attack_tactic_label
+from metadata import get_event_meta
 
 
-SEVERITY_RANK = {
-    "none": 0,
-    "low": 1,
-    "medium": 2,
-    "high": 3,
-    "critical": 4,
-}
 
-
-def _severity_rank(severity):
-    return SEVERITY_RANK.get(str(severity or "none").lower(), 0)
 
 
 def _get_current_target_ip():
@@ -106,7 +95,7 @@ def _build_detection_summary(events):
             row = summary[key]
             row["탐지 건수"] += 1
 
-            if _severity_rank(rule_severity) > _severity_rank(row["최고 위험도"]):
+            if severity_rank(rule_severity) > severity_rank(row["최고 위험도"]):
                 row["최고 위험도"] = rule_severity
 
             row["최고 점수"] = max(row["최고 점수"], rule_score)
@@ -119,12 +108,15 @@ def _build_detection_summary(events):
 
     rows.sort(
         key=lambda row: (
-            _severity_rank(row["최고 위험도"]),
+            severity_rank(row["최고 위험도"]),
             row["최고 점수"],
             row["탐지 건수"],
         ),
         reverse=True,
     )
+
+    for row in rows:
+        row["위험도"] = row["최고 위험도"]
 
     metrics = {
         "detected_event_count": detected_event_count,
@@ -154,10 +146,24 @@ def _render_detection_summary(events):
 
     summary_df = pd.DataFrame(rows)
 
-    st.dataframe(
-        summary_df,
-        use_container_width=True,
-        hide_index=True,
+    visible_cols = [
+        "룰 ID",
+        "룰 이름",
+        "탐지 건수",
+        "위험도",
+        "최고 점수",
+        "ATT&CK Tactic",
+        "ATT&CK Technique",
+        "최근 발생",
+    ]
+
+    summary_df = summary_df[[c for c in visible_cols if c in summary_df.columns]]
+
+    render_badge_table(
+        rows=summary_df.to_dict("records"),
+        columns=list(summary_df.columns),
+        badge_columns={"위험도"},
+        right_columns={"탐지 건수", "최고 점수"},
     )
 
 
@@ -465,7 +471,7 @@ def render_defense():
 
 
                 row1 = st.columns(3)
-                row1[0].write(f"사용자: **{username}**")
+                row1[0].write(f"👤 사용자: **{username}**")
                 row1[1].write(f"이벤트 타입: **{event_type}**")
                 row1[2].write(f"호스트 역할: **{host_role}**")
 
@@ -475,7 +481,7 @@ def render_defense():
                 row2[2].write(f"업무 외 시간 여부: **{is_off_hours}**")
 
                 row3 = st.columns(3)
-                row3[0].write(f"Source IP: **{source_ip}**")
+                row3[0].write(f"🌐 Source IP: **{source_ip}**")
                 if group_name and group_name != "-":
                     row3[1].write(f"그룹: **{group_name}**")
                 row3[2].write(f"")

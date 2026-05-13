@@ -322,6 +322,40 @@ SEVERITY_LABELS = {
 }
 
 
+RECON_RECOMMENDATION_LABELS = {
+    "kerberoasting": {
+        "title": "Kerberoasting 주의",
+        "message": "SPN 등록 계정이 확인되었습니다. Kerberoasting 공격이 시도될 수 있으므로 서비스 계정 비밀번호 정책과 Kerberos 티켓 요청 로그를 주의 깊게 확인하기 바랍니다.",
+    },
+    "asrep_roasting": {
+        "title": "AS-REP Roasting 주의",
+        "message": "Kerberos 사전 인증이 비활성화된 계정이 확인되었습니다. AS-REP Roasting 공격이 시도될 수 있으므로 계정 설정과 인증 실패 로그를 점검하기 바랍니다.",
+    },
+    "dns_admin_abuse": {
+        "title": "DNS Admin Abuse 주의",
+        "message": "DnsAdmins 그룹 멤버가 확인되었습니다. DNS 서비스 권한을 악용한 권한 상승이 시도될 수 있으므로 그룹 멤버십과 변경 이력을 주의 깊게 확인하기 바랍니다.",
+    },
+    "privilege_escalation_tracking": {
+        "title": "고권한 계정 사용 주의",
+        "message": "고권한 그룹 멤버가 확인되었습니다. 관리자 계정 사용 이력, 원격 로그인, 그룹 변경 이벤트를 지속적으로 점검하기 바랍니다.",
+    },
+    "ad_dacl_abuse": {
+        "title": "AD-DACL Abuse 주의",
+        "message": "흥미로운 ACL 항목이 확인되었습니다. 권한 위임 설정이 권한 상승 경로로 악용될 수 있으므로 민감 객체의 ACL 상태를 점검하기 바랍니다.",
+    },
+}
+
+
+def get_recon_recommendation(rec_key: str) -> dict:
+    return RECON_RECOMMENDATION_LABELS.get(
+        str(rec_key),
+        {
+            "title": "정찰 결과 기반 주의 항목",
+            "message": str(rec_key),
+        },
+    )
+
+
 def get_event_meta(event_id, event_type=None):
     event_id = str(event_id) if event_id is not None else "-"
     meta = EVENT_CATALOG.get(event_id)

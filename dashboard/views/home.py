@@ -15,12 +15,13 @@ from api_client import (
 )
 from utils import safe_json_loads, normalize_matched_rules
 from metadata import get_event_meta
+from components import severity_rank, render_badge_table
 
 
 def _count_detected_events(events):
     count = 0
     high_or_more = 0
-    rule_counter = {}
+    rule_summary = {}
 
     for item in events:
         detection = safe_json_loads(item.get("detection_json"))
@@ -34,10 +35,43 @@ def _count_detected_events(events):
             high_or_more += 1
 
         for rule in normalize_matched_rules(detection):
-            label = rule.get("rule_name") or rule.get("rule_id") or "-"
-            rule_counter[label] = rule_counter.get(label, 0) + 1
+            rule_id = rule.get("rule_id") or "-"
+            rule_name = rule.get("rule_name") or "-"
+            label = f"{rule_id} {rule_name}".strip()
 
-    return count, high_or_more, rule_counter
+            rule_risk = rule.get("risk") or {}
+            rule_severity = str(
+                rule_risk.get("severity")
+                or risk.get("severity")
+                or "none"
+            ).lower()
+
+            try:
+                rule_score = int(
+                    rule_risk.get("final_score")
+                    or risk.get("final_score")
+                    or 0
+                )
+            except Exception:
+                rule_score = 0
+
+            if label not in rule_summary:
+                rule_summary[label] = {
+                    "탐지 룰": label,
+                    "건수": 0,
+                    "위험도_raw": rule_severity,
+                    "최고 점수": rule_score,
+                }
+
+            row = rule_summary[label]
+            row["건수"] += 1
+
+            if severity_rank(rule_severity) > severity_rank(row["위험도_raw"]):
+                row["위험도_raw"] = rule_severity
+
+            row["최고 점수"] = max(row["최고 점수"], rule_score)
+
+    return count, high_or_more, rule_summary
 
 
 # ------------------------------------------------------------------
@@ -317,12 +351,12 @@ def render_home():
     # 2. 상단 상태 카드
     c1, c2, c3, c4, c5 = st.columns(5)
 
-    c1.metric("Backend", "정상" if backend_ok else "오류")
-    c2.metric("최근 이벤트", len(events))
-    c2.caption(f"최근 1시간 | 수집 모드: `{save_mode}`")
-    c3.metric("탐지 이벤트", detected_count)
-    c4.metric("High 이상", high_count)
-    c5.metric("실행 중", len(running_runs) if isinstance(running_runs, list) else 0)
+    c1.metric("Backend", "🟢 정상" if backend_ok else "🔴 오류")
+    c2.metric("📥 최근 이벤트", len(events))
+    c2.caption(f"최근 1시간 |\n수집 모드: `{save_mode}`")
+    c3.metric("🚨 탐지 이벤트", detected_count)
+    c4.metric("🔥 High 이상", high_count)
+    c5.metric("🏃 실행 중", len(running_runs) if isinstance(running_runs, list) else 0)
 
     st.divider()
 
@@ -365,7 +399,7 @@ def render_home():
     st.divider()
 
     # 5. 탐지 상위 룰
-    col_rule, col_event = st.columns([5, 5])
+    col_rule, col_rule_chart = st.columns([6, 4])
 
     with col_rule:
         st.markdown("### 최근 탐지 룰 TOP (최근 1시간 기준)")
@@ -373,46 +407,66 @@ def render_home():
         if not rule_counter:
             st.info("최근 탐지된 룰이 없습니다.")
         else:
-            top_rules = sorted(rule_counter.items(), key=lambda x: x[1], reverse=True)[:5]
-            st.dataframe(
-                pd.DataFrame(top_rules, columns=["탐지 룰", "건수"]),
-                use_container_width=True,
-                hide_index=True,
+            rows = list(rule_counter.values())
+            rows.sort(
+                key=lambda r: (
+                    severity_rank(r["위험도_raw"]),
+                    r["최고 점수"],
+                    r["건수"],
+                ),
+                reverse=True,
+            )
+            
+            top_rows = rows[:5]
+            for row in top_rows:
+                row["위험도"] = row["위험도_raw"]
+
+            df_top = pd.DataFrame(top_rows)[["탐지 룰", "건수", "위험도", "최고 점수"]]
+
+            render_badge_table(
+                rows=df_top.to_dict("records"),
+                columns=["탐지 룰", "건수", "위험도", "최고 점수"],
+                badge_columns={"위험도"},
+                right_columns={"건수", "최고 점수"},
             )
 
-    with col_event:
-        st.markdown("### 이벤트 TOP (최근 1시간 기준)")
+    with col_rule_chart:
+        chart_df = df_top.set_index("위험도")[["건수"]]
+        st.bar_chart(chart_df)
 
-        if not events:
-            st.info("이벤트가 없습니다.")
-        else:
-            rows = []
+    # with col_event:
+    st.markdown("### 이벤트 TOP (최근 1시간 기준)")
 
-            for item in events:
-                event_id = str(item.get("event_id", "-"))
-                normalized = safe_json_loads(item.get("normalized_json"))
-                event_type = normalized.get("event_type", "unknown")
-                meta = get_event_meta(event_id, event_type)
+    if not events:
+        st.info("이벤트가 없습니다.")
+    else:
+        rows = []
 
-                rows.append({
-                    "이벤트 ID": event_id,
-                    "이벤트 타입": meta.get("label"),
-                    "분류": meta.get("category"),
-                    "설명": meta.get("description"),
-                })
+        for item in events:
+            event_id = str(item.get("event_id", "-"))
+            normalized = safe_json_loads(item.get("normalized_json"))
+            event_type = normalized.get("event_type", "unknown")
+            meta = get_event_meta(event_id, event_type)
 
-            event_df = pd.DataFrame(rows)
+            rows.append({
+                "이벤트 ID": event_id,
+                "이벤트 타입": meta.get("label"),
+                "분류": meta.get("category"),
+                "설명": meta.get("description"),
+            })
 
-            event_summary = (
-                event_df
-                .groupby(["이벤트 ID", "이벤트 타입", "분류", "설명"], dropna=False)
-                .size()
-                .reset_index(name="건수")
-                .sort_values("건수", ascending=False)
-                .head(5)
-            )
+        event_df = pd.DataFrame(rows)
 
-            st.dataframe(event_summary, use_container_width=True, hide_index=True)
+        event_summary = (
+            event_df
+            .groupby(["이벤트 ID", "이벤트 타입", "분류", "설명"], dropna=False)
+            .size()
+            .reset_index(name="건수")
+            .sort_values("건수", ascending=False)
+            .head(5)
+        )
+
+        st.dataframe(event_summary, use_container_width=True, hide_index=True)
 
     st.divider()
 

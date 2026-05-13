@@ -6,14 +6,174 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from api_client import get_scenarios, get_latest_recon_summary, get_latest_recon_result
+from api_client import get_scenarios, get_latest_recon_summary, get_latest_recon_result, get_scenario_runs, get_scenario_log
+from utils import is_recon_run
 from components import render_scenario_card
 from config import ATTACK_REQUESTED_BY, VICTIM_URL
 from views.recon_bloodhound import render_bloodhound
+from metadata import get_recon_recommendation
 
 
 PINGCASTLE_LATEST_DIR = "/data/recon/pingcastle/latest"
 RECON_BASE_DIR = Path("/data/recon")
+
+
+def _render_recon_run_history():
+    col_title, col_refresh, col_auto = st.columns([6, 1.3, 2.7])
+
+    with col_title:
+        st.markdown("### 정찰 실행 이력")
+
+    with col_refresh:
+        if st.button("새로고침", key="refresh_recon_history"):
+            st.rerun()
+
+    with col_auto:
+        auto_refresh = st.toggle(
+            "실행 중 자동 갱신",
+            value=False,
+            key="recon_history_auto_refresh",
+            help="실행 중인 정찰 작업이 있을 때 5초마다 화면을 새로고침합니다."
+        )
+
+    try:
+        runs = get_scenario_runs(limit=20)
+    except Exception as e:
+        st.error(f"정찰 실행 이력 조회 실패: {e}")
+        return
+
+    if isinstance(runs, dict) and runs.get("result") == "error":
+        st.error(runs.get("message", "정찰 실행 이력 조회 실패"))
+        return
+
+    recon_runs = [item for item in runs if is_recon_run(item)][:5]
+
+    if not recon_runs:
+        st.info("최근 정찰 실행 이력이 없습니다.")
+        return
+
+    history_rows = []
+    running_count = 0
+
+    for item in recon_runs:
+        raw_status = item.get("status", "-")
+
+        if raw_status == "running":
+            display_status = "🔵 running"
+            running_count += 1
+        elif raw_status == "success":
+            display_status = "✅ success"
+        elif raw_status == "failed":
+            display_status = "❌ failed"
+        else:
+            display_status = raw_status
+
+        history_rows.append({
+            "run_id": item.get("run_id", "-"),
+            "도구": item.get("scenario_id", "-"),
+            "대상 IP": item.get("target_ip", "-"),
+            "상태": display_status,
+            "실행자": item.get("requested_by", "-"),
+            "시작 시간": item.get("started_at", "-"),
+            "종료 시간": item.get("finished_at", "-"),
+        })
+
+    history_df = pd.DataFrame(history_rows)
+
+    def highlight_status(val):
+        text = str(val)
+        if "running" in text:
+            return "background-color: #dbeafe; color: #1d4ed8; font-weight: bold;"
+        elif "success" in text:
+            return "background-color: #ecfdf5; color: #166534; font-weight: bold;"
+        elif "failed" in text:
+            return "background-color: #fef2f2; color: #991b1b; font-weight: bold;"
+        return ""
+
+    styled_df = history_df.style.map(
+        highlight_status,
+        subset=["상태"]
+    )
+
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+    if running_count > 0:
+        st.info(f"현재 실행 중인 정찰 작업이 {running_count}개 있습니다.")
+
+    st.markdown("### 정찰 실행 로그 확인")
+
+    run_options = [
+        row["run_id"]
+        for row in history_rows
+        if row.get("run_id") not in (None, "-")
+    ]
+
+    if not run_options:
+        st.info("조회 가능한 정찰 실행 로그가 없습니다.")
+        return
+
+    col_run_log, col_log_lines, col_load_log, col_load_refresh = st.columns([3.5, 3.5, 1.5, 1.5])
+
+    with col_run_log:
+        selected_run_id = st.selectbox(
+            "로그를 볼 정찰 실행 선택",
+            options=run_options,
+            key="recon_selected_run_id"
+        )
+
+    with col_log_lines:
+        tail = st.selectbox(
+            "불러올 로그 줄 수",
+            [50, 100, 200, 500],
+            index=2,
+            key="recon_selected_log_tail"
+        )
+
+    with col_load_log:
+        if st.button("로그 불러오기", key="recon_load_selected_log"):
+            try:
+                st.session_state["recon_selected_run_log"] = get_scenario_log(
+                    selected_run_id,
+                    tail=tail
+                )
+            except Exception as e:
+                st.session_state["recon_selected_run_log"] = {
+                    "result": "error",
+                    "message": str(e),
+                }
+
+    with col_load_refresh:
+        if st.button("로그 새로고침", key="recon_refresh_selected_log"):
+            try:
+                st.session_state["recon_selected_run_log"] = get_scenario_log(
+                    selected_run_id,
+                    tail=tail
+                )
+            except Exception as e:
+                st.session_state["recon_selected_run_log"] = {
+                    "result": "error",
+                    "message": str(e),
+                }
+
+    cached_log = st.session_state.get("recon_selected_run_log")
+
+    if cached_log:
+        if cached_log.get("result") == "error":
+            st.error(cached_log.get("message", "로그 조회 실패"))
+        else:
+            st.caption(
+                f"log_path: {cached_log.get('log_path', '-')} | "
+                f"encoding: {cached_log.get('encoding', '-')} | "
+                f"tail: {cached_log.get('tail', '-')}"
+            )
+            st.code(cached_log.get("log_text", ""), language="bash")
+    else:
+        st.info("정찰 실행 이력을 선택하고 로그를 불러오세요.")
+
+    if auto_refresh and running_count > 0:
+        import time
+        time.sleep(5)
+        st.rerun()
 
 
 def _list_recon_runs(tool: str):
@@ -409,6 +569,7 @@ def _render_pingcastle_compare():
 # ----------------------------------
 def _render_powerview_summary():
     summary = get_latest_recon_summary("powerview")
+    result = get_latest_recon_result("powerview")
 
     if summary.get("result") == "empty":
         st.info("아직 저장된 PowerView 정찰 결과가 없습니다.")
@@ -418,14 +579,61 @@ def _render_powerview_summary():
     c1.metric("총 사용자 수", summary.get("total_users", 0))
     c2.metric("총 그룹 수", summary.get("total_groups", 0))
     c3.metric("총 컴퓨터 수", summary.get("total_computers", 0))
-    c4.metric("SPN 계정 수", summary.get("spn_users_count", 0))
-    c5.metric("NoPreAuth 계정 수", summary.get("no_preauth_users_count", 0))
+    c4.metric("🎯 SPN 계정 수", summary.get("spn_users_count", 0))
+    c5.metric("🔓 NoPreAuth 계정 수", summary.get("no_preauth_users_count", 0))
 
     c6, c7, c8, c9 = st.columns(4)
-    c6.metric("Domain Admins", summary.get("domain_admins_count", 0))
+    c6.metric("👑 Domain Admins", summary.get("domain_admins_count", 0))
     c7.metric("Enterprise Admins", summary.get("enterprise_admins_count", 0))
-    c8.metric("DnsAdmins", summary.get("dns_admins_count", 0))
-    c9.metric("Interesting ACLs", summary.get("interesting_acls_count", 0))
+    c8.metric("🌐 DnsAdmins", summary.get("dns_admins_count", 0))
+    c9.metric("🧩 Interesting ACLs", summary.get("interesting_acls_count", 0))
+
+    recommendations = result.get("recommendations") or []
+    
+    st.markdown("### 추천 공격/점검 시나리오")
+
+    if not recommendations:
+        st.info("현재 PowerView 결과 기준으로 추천 시나리오가 없습니다.")
+    else:
+        for rec in recommendations:
+            rec_info = get_recon_recommendation(str(rec))
+
+            if isinstance(rec_info, dict):
+                rec_title = rec_info.get("title", "정찰 결과 기반 주의 항목")
+                rec_message = rec_info.get("message", str(rec))
+            else:
+                rec_title = "정찰 결과 기반 주의 항목"
+                rec_message = str(rec_info)
+
+            st.markdown(
+                f"""
+                <div style="
+                    border:1px solid #e5e7eb;
+                    border-left:5px solid #f59e0b;
+                    border-radius:12px;
+                    padding:10px 12px;
+                    margin-bottom:8px;
+                    background:#fffbeb;
+                ">
+                    <div style="
+                        font-size:0.86rem;
+                        color:#92400e;
+                        font-weight:800;
+                        margin-bottom:4px;
+                    ">
+                        💡 {rec_title}
+                    </div>
+                    <div style="
+                        font-size:0.95rem;
+                        color:#374151;
+                        line-height:1.55;
+                    ">
+                        {rec_message}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def _render_powerview_compare():
@@ -481,28 +689,6 @@ def _render_powerview_compare():
     )
 
 
-# def _render_generic_summary(tool: str, title: str):
-#     try:
-#         summary = get_latest_recon_summary(tool)
-#     except Exception as e:
-#         st.error(f"{title} 조회 실패: {e}")
-#         return
-
-#     with st.container(border=True):
-#         st.markdown(f"### {title}")
-
-#         if summary.get("result") == "empty":
-#             st.info("저장된 결과가 없습니다.")
-#             return
-        
-#         if summary.get("result") == "error":
-#             st.error(summary.get("message", "조회 실패"))
-#             return
-
-#         for key, value in list(summary.items())[:10]:
-#             st.write(f"{key}: **{value}**")
-
-
 
 # ----------------------------------
 # 대시보드 로드
@@ -511,6 +697,12 @@ def _render_powerview_compare():
 def render_recon():
     st.title("정찰")
     st.caption("PowerView, PingCastle, BloodHound 등 AD 정찰 결과를 확인합니다.")
+
+
+    st.divider()
+    _render_recon_run_history()
+
+
     st.divider()
 
     st.subheader("정찰 / 도구")
@@ -530,7 +722,7 @@ def render_recon():
     grouped = _group_scenarios(scenarios)
     recon_scenarios = grouped["tools"]
 
-    st.markdown("### 도구 실행")
+    st.markdown("### 🛠️ 도구 실행")
 
     if not recon_scenarios:
         st.info("표시할 정찰 도구가 없습니다.")

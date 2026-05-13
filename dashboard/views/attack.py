@@ -4,6 +4,7 @@ import streamlit as st
 from config import ATTACK_REQUESTED_BY, VICTIM_URL
 from api_client import get_scenarios, get_scenario_runs, get_scenario_log
 from components import render_scenario_card
+from utils import is_recon_run
 
 
 def _group_scenarios(scenarios):
@@ -34,7 +35,11 @@ def _render_run_history():
         st.rerun()
 
     try:
-        history_data = get_scenario_runs(limit=5)
+        history_data = get_scenario_runs(limit=20)
+        history_data = [
+            item for item in history_data
+            if not is_recon_run(item)
+        ][:5]
     except Exception as e:
         st.error(f"실행 이력 조회 실패: {e}")
         return
@@ -190,7 +195,7 @@ def render_attack():
         st.info("표시할 공격 시나리오가 없습니다.")
         return
 
-    tab1, tab2, tab3 = st.tabs(["탐지 테스트", "공격 시나리오", "기타"])
+    tab1, tab2, tab3 = st.tabs(["🧪 탐지 테스트", "⚔️ 공격 시나리오", "📌 기타"])
 
     with tab1:
         for scenario in grouped["detection_test"]:

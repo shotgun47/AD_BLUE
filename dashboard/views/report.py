@@ -18,6 +18,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from api_client import get_latest_recon_summary, get_latest_recon_result
+from components import severity_badge, SEVERITY_ORDER
 
 
 PINGCASTLE_LATEST_DIR = "/data/recon/pingcastle/latest"
@@ -42,16 +43,6 @@ RISK_THRESHOLDS = [
     ("dns_admins_count", "DnsAdmins 수", 1, 3,
      "DnsAdmins 는 DC 권한 상승에 악용될 수 있는 경로입니다."),
 ]
-
-SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
-
-SEVERITY_STYLE = {
-    "critical": ("#fee2e2", "#7f1d1d"),
-    "high": ("#ffedd5", "#9a3412"),
-    "medium": ("#fef3c7", "#92400e"),
-    "low": ("#dcfce7", "#166534"),
-    "none": ("#f3f4f6", "#374151"),
-}
 
 
 # README 방어 시나리오 매핑
@@ -89,14 +80,6 @@ RECOMMENDATION_MAP = {
 # ------------------------------------------------------------------
 # 유틸
 # ------------------------------------------------------------------
-def _severity_badge_html(severity: str) -> str:
-    severity = (severity or "none").lower()
-    bg, fg = SEVERITY_STYLE.get(severity, SEVERITY_STYLE["none"])
-    return (
-        f'<span style="background-color:{bg}; color:{fg}; '
-        f'padding:3px 10px; border-radius:999px; font-weight:700; '
-        f'font-size:0.85rem;">{severity.upper()}</span>'
-    )
 
 
 def _evaluate_severity(value: int, medium_th: int, high_th: int) -> str:
@@ -330,7 +313,7 @@ def _render_risk_assessment(pv_summary: dict):
         return overall
 
     st.markdown(
-        f"전체 위험 등급 : {_severity_badge_html(overall)}",
+        f"전체 위험 등급 : {severity_badge(overall)}",
         unsafe_allow_html=True,
     )
 
@@ -352,7 +335,7 @@ def _render_risk_assessment(pv_summary: dict):
             "<tr>"
             f"<td style='padding:8px; border:1px solid #e5e7eb;'>{r['항목']}</td>"
             f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:right;'>{r['값']}</td>"
-            f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:center;'>{_severity_badge_html(r['등급'])}</td>"
+            f"<td style='padding:8px; border:1px solid #e5e7eb; text-align:center;'>{severity_badge(r['등급'])}</td>"
             f"<td style='padding:8px; border:1px solid #e5e7eb; color:#374151;'>{r['설명']}</td>"
             "</tr>"
         )
@@ -566,7 +549,7 @@ def _render_recommendations(risk_rows):
         with st.container(border=True):
             st.markdown(
                 f"**{r['항목']}** &nbsp; "
-                f"(값: {r['값']}) &nbsp; {_severity_badge_html(r['등급'])}",
+                f"(값: {r['값']}) &nbsp; {severity_badge(r['등급'])}",
                 unsafe_allow_html=True,
             )
             recs = RECOMMENDATION_MAP.get(r["key"], [])

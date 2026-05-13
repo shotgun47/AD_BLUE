@@ -4,6 +4,114 @@ import streamlit as st
 from config import SCENARIO_TYPE_STYLE_MAP
 from api_client import run_scenario
 
+import html
+
+
+SEVERITY_ORDER = {
+    "critical": 4,
+    "high": 3,
+    "medium": 2,
+    "low": 1,
+    "none": 0,
+}
+
+SEVERITY_STYLE = {
+    "critical": ("#fee2e2", "#7f1d1d", "CRITICAL"),
+    "high": ("#ffedd5", "#9a3412", "HIGH"),
+    "medium": ("#fef3c7", "#92400e", "MEDIUM"),
+    "low": ("#dcfce7", "#166534", "LOW"),
+    "none": ("#f3f4f6", "#374151", "NONE"),
+}
+
+
+def normalize_severity(severity: str) -> str:
+    severity = str(severity or "none").lower()
+    return severity if severity in SEVERITY_STYLE else "none"
+
+
+def severity_rank(severity: str) -> int:
+    return SEVERITY_ORDER.get(normalize_severity(severity), 0)
+
+
+def severity_text(severity: str) -> str:
+    severity = normalize_severity(severity)
+    return SEVERITY_STYLE[severity][2]
+
+
+def severity_badge(severity: str) -> str:
+    severity = normalize_severity(severity)
+    bg, fg, label = SEVERITY_STYLE[severity]
+    return (
+        f'<span style="background-color:{bg}; color:{fg}; '
+        f'padding:3px 10px; border-radius:999px; font-weight:700; '
+        f'font-size:0.85rem;">{label}</span>'
+    )
+
+
+def render_badge_table(rows, columns, badge_columns=None, right_columns=None):
+    """
+    st.dataframe 대신 HTML table로 출력하기 위한 공통 함수.
+    badge_columns에 들어간 컬럼은 severity_badge()로 렌더링한다.
+    """
+    badge_columns = set(badge_columns or [])
+    right_columns = set(right_columns or [])
+
+    if not rows:
+        st.info("표시할 데이터가 없습니다.")
+        return
+
+    table_html = """
+    <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+        <thead>
+            <tr style="background:#f9fafb;">
+    """
+
+    for col in columns:
+        align = "right" if col in right_columns else "left"
+        if col in badge_columns:
+            align = "center"
+
+        table_html += (
+            f"<th style='padding:8px; border:1px solid #e5e7eb; "
+            f"text-align:{align};'>{html.escape(str(col))}</th>"
+        )
+
+    table_html += """
+            </tr>
+        </thead>
+        <tbody>
+    """
+
+    for row in rows:
+        table_html += "<tr>"
+
+        for col in columns:
+            value = row.get(col, "-")
+            align = "right" if col in right_columns else "left"
+
+            if col in badge_columns:
+                cell = severity_badge(value)
+                align = "center"
+            else:
+                cell = html.escape(str(value if value is not None else "-"))
+
+            table_html += (
+                f"<td style='padding:8px; border:1px solid #e5e7eb; "
+                f"text-align:{align}; color:#374151;'>{cell}</td>"
+            )
+
+        table_html += "</tr>"
+
+    table_html += """
+        </tbody>
+    </table>
+    """
+
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
+
+
 
 def render_sidebar():
     with st.sidebar:
@@ -39,23 +147,6 @@ def render_sidebar():
                 },
             },
         )
-    
-
-def severity_badge(severity: str):
-    severity = severity or "none"
-    style_map = {
-        "critical": ("#fee2e2", "#7f1d1d"),
-        "high": ("#ffedd5", "#9a3412"),
-        "medium": ("#fef3c7", "#92400e"),
-        "low": ("#dcfce7", "#166534"),
-        "none": ("#f3f4f6", "#374151"),
-    }
-    bg, fg = style_map.get(str(severity).lower(), ("#eef2ff", "#3730a3"))
-    return (
-        f'<span style="background-color:{bg}; color:{fg}; '
-        f'padding:3px 8px; border-radius:999px; font-weight:700;">'
-        f'{severity}</span>'
-    )
 
 
 def render_param_field(scenario_id: str, field: dict):

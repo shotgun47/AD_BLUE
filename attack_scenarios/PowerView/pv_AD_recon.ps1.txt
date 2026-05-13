@@ -246,19 +246,19 @@ $interestingAcls = Select-SafeObject -InputObjects $aclInterestingRaw.data -Prop
 $recommendations = New-Object System.Collections.Generic.List[string]
 
 if ((Safe-Count $spnUsers) -gt 0) {
-    Add-Recommendation -List $recommendations -Message "SPN 등록 계정이 존재하므로 Kerberoasting 시나리오를 추천합니다."
+    Add-Recommendation -List $recommendations -Message "kerberoasting"
 }
 if ((Safe-Count $noPreauthUsers) -gt 0) {
-    Add-Recommendation -List $recommendations -Message "사전 인증 미사용 계정이 존재하므로 AS-REP Roasting 시나리오를 추천합니다."
+    Add-Recommendation -List $recommendations -Message "asrep_roasting"
 }
 if ((Safe-Count $dnsAdmins) -gt 0) {
-    Add-Recommendation -List $recommendations -Message "DnsAdmins 멤버가 존재하므로 DNS Admin Abuse 점검 또는 권한 상승 시나리오를 추천합니다."
+    Add-Recommendation -List $recommendations -Message "dns_admin_abuse"
 }
 if ((Safe-Count $domainAdmins) -gt 0) {
-    Add-Recommendation -List $recommendations -Message "고권한 그룹 멤버를 기준으로 권한 상승/관리자 행위 추적 시나리오를 추천합니다."
+    Add-Recommendation -List $recommendations -Message "privilege_escalation_tracking"
 }
 if ((Safe-Count $interestingAcls) -gt 0) {
-    Add-Recommendation -List $recommendations -Message "흥미로운 ACL이 존재하므로 AD-DACL Abuse 가능성을 점검하세요."
+    Add-Recommendation -List $recommendations -Message "ad_dacl_abuse"
 }
 
 $errors = @{}

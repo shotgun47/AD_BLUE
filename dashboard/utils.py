@@ -86,3 +86,13 @@ def rule_label(rule: dict):
     rule_id = rule.get("rule_id") or "-"
     rule_name = rule.get("rule_name") or "-"
     return f"{rule_id} / {rule_name}" if rule_name != "-" else str(rule_id)
+
+
+def is_recon_run(item: dict) -> bool:
+    scenario_type = str(item.get("scenario_type", "")).lower()
+    scenario_id = str(item.get("scenario_id", "")).lower()
+
+    return (
+        scenario_type == "tools"
+        or any(k in scenario_id for k in ["powerview", "pingcastle", "bloodhound", "recon"])
+    )
