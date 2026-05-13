@@ -13,65 +13,11 @@ from api_client import (
     get_running_scenario_runs,
     get_latest_recon_summary,
 )
-from utils import safe_json_loads, normalize_matched_rules
+from utils import safe_json_loads
 from metadata import get_event_meta
 from components import severity_rank, render_badge_table
+from views.defense import _build_detection_summary
 
-
-def _count_detected_events(events):
-    count = 0
-    high_or_more = 0
-    rule_summary = {}
-
-    for item in events:
-        detection = safe_json_loads(item.get("detection_json"))
-        risk = safe_json_loads(item.get("risk_json"))
-
-        if detection.get("detected"):
-            count += 1
-
-        severity = str(risk.get("severity", "none")).lower()
-        if severity in ("high", "critical"):
-            high_or_more += 1
-
-        for rule in normalize_matched_rules(detection):
-            rule_id = rule.get("rule_id") or "-"
-            rule_name = rule.get("rule_name") or "-"
-            label = f"{rule_id} {rule_name}".strip()
-
-            rule_risk = rule.get("risk") or {}
-            rule_severity = str(
-                rule_risk.get("severity")
-                or risk.get("severity")
-                or "none"
-            ).lower()
-
-            try:
-                rule_score = int(
-                    rule_risk.get("final_score")
-                    or risk.get("final_score")
-                    or 0
-                )
-            except Exception:
-                rule_score = 0
-
-            if label not in rule_summary:
-                rule_summary[label] = {
-                    "탐지 룰": label,
-                    "건수": 0,
-                    "위험도_raw": rule_severity,
-                    "최고 점수": rule_score,
-                }
-
-            row = rule_summary[label]
-            row["건수"] += 1
-
-            if severity_rank(rule_severity) > severity_rank(row["위험도_raw"]):
-                row["위험도_raw"] = rule_severity
-
-            row["최고 점수"] = max(row["최고 점수"], rule_score)
-
-    return count, high_or_more, rule_summary
 
 
 # ------------------------------------------------------------------
@@ -346,7 +292,10 @@ def render_home():
     except Exception:
         running_runs = []
 
-    detected_count, high_count, rule_counter = _count_detected_events(events)
+    summary_rows, defense_metrics = _build_detection_summary(events)
+
+    detected_count = defense_metrics["detected_event_count"]
+    high_count = defense_metrics["high_or_more_count"]
 
     # 2. 상단 상태 카드
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -404,35 +353,37 @@ def render_home():
     with col_rule:
         st.markdown("### 최근 탐지 룰 TOP (최근 1시간 기준)")
 
-        if not rule_counter:
+        if not summary_rows:
             st.info("최근 탐지된 룰이 없습니다.")
+            df_top = pd.DataFrame()
         else:
-            rows = list(rule_counter.values())
-            rows.sort(
-                key=lambda r: (
-                    severity_rank(r["위험도_raw"]),
-                    r["최고 점수"],
-                    r["건수"],
-                ),
-                reverse=True,
-            )
-            
-            top_rows = rows[:5]
-            for row in top_rows:
-                row["위험도"] = row["위험도_raw"]
+            top_rows = summary_rows[:5]
 
-            df_top = pd.DataFrame(top_rows)[["탐지 룰", "건수", "위험도", "최고 점수"]]
+            df_top = pd.DataFrame(top_rows)
+
+            # 방어 탭 컬럼명을 홈 화면용 컬럼명으로 맞춤
+            df_top = df_top.rename(columns={
+                "룰 이름": "탐지 룰",
+                "탐지 건수": "건수",
+                "최고 점수": "최고 점수",
+            })
+
+            visible_cols = ["탐지 룰", "건수", "위험도", "최고 점수"]
+            df_top = df_top[[c for c in visible_cols if c in df_top.columns]]
 
             render_badge_table(
                 rows=df_top.to_dict("records"),
-                columns=["탐지 룰", "건수", "위험도", "최고 점수"],
+                columns=list(df_top.columns),
                 badge_columns={"위험도"},
                 right_columns={"건수", "최고 점수"},
             )
 
     with col_rule_chart:
-        chart_df = df_top.set_index("위험도")[["건수"]]
-        st.bar_chart(chart_df)
+        if not df_top.empty and "위험도" in df_top.columns and "건수" in df_top.columns:
+            chart_df = df_top.set_index("탐지 룰")[["건수"]]
+            st.bar_chart(chart_df)
+        else:
+            st.info("차트로 표시할 탐지 룰이 없습니다.")
 
     # with col_event:
     st.markdown("### 이벤트 TOP (최근 1시간 기준)")

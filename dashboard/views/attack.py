@@ -29,10 +29,21 @@ def _render_run_history():
     st.title("공격")
     st.divider()
 
-    st.subheader("최근 실행 이력")
+    col_title, col_refresh, col_auto = st.columns([6, 1.3, 2.7])
+    with col_title:
+        st.markdown("### 최근 실행 이력")
 
-    if st.button("실행 이력 새로고침", key="refresh_attack_history"):
-        st.rerun()
+    with col_refresh:
+        if st.button("새로고침", key="refresh_attack_history"):
+            st.rerun()
+
+    with col_auto:
+        auto_refresh = st.toggle(
+            "실행 중 자동 갱신",
+            value=False,
+            key="attack_history_auto_refresh",
+            help="실행 중인 정찰 작업이 있을 때 5초마다 화면을 새로고침합니다."
+        )
 
     try:
         history_data = get_scenario_runs(limit=20)
@@ -53,11 +64,14 @@ def _render_run_history():
         return
 
     history_rows = []
+    running_count = 0
+    
     for item in history_data:
         raw_status = item.get("status", "-")
 
         if raw_status == "running":
             display_status = "🔵 running"
+            running_count += 1
         elif raw_status == "success":
             display_status = "✅ success"
         elif raw_status == "failed":
@@ -74,6 +88,11 @@ def _render_run_history():
             "상태": display_status,
             "시작 시간": item.get("started_at", "-"),
         })
+
+    if auto_refresh and running_count > 0:
+        import time
+        time.sleep(5)
+        st.rerun()
 
     history_df = pd.DataFrame(history_rows)
 
@@ -92,6 +111,9 @@ def _render_run_history():
     )
 
     st.dataframe(styled_df, use_container_width=True)
+
+    if running_count > 0:
+        st.info(f"현재 실행 중인 공격 작업이 {running_count}개 있습니다.")
 
     st.markdown("### 실행 로그 확인")
 
