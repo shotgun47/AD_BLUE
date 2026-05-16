@@ -120,7 +120,7 @@ def list_scenario_runs(limit: int = 5):
             f"{ATTACK_RUNNER_URL}/scenario-runs",
             headers={"X-API-Token": ATTACK_RUNNER_TOKEN},
             params={"limit": limit},
-            timeout=10
+            timeout=3
         )
         res.raise_for_status()
         return res.json()

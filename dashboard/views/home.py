@@ -287,9 +287,9 @@ def render_home():
     except Exception:
         runs = []
 
-    try:
-        running_runs = get_running_scenario_runs()
-    except Exception:
+    # try:
+    #     running_runs = get_running_scenario_runs()
+    # except Exception:
         running_runs = []
 
     summary_rows, defense_metrics = _build_detection_summary(events)
@@ -305,45 +305,45 @@ def render_home():
     c2.caption(f"최근 1시간 |\n수집 모드: `{save_mode}`")
     c3.metric("🚨 탐지 이벤트", detected_count)
     c4.metric("🔥 High 이상", high_count)
-    c5.metric("🏃 실행 중", len(running_runs) if isinstance(running_runs, list) else 0)
+    # c5.metric("🏃 실행 중", len(running_runs) if isinstance(running_runs, list) else 0)
 
     st.divider()
 
     # 3. 최근 공격 실행 이력
-    left, right = st.columns([6, 4])
+    # left, right = st.columns([6, 4])
 
-    with left:
-        st.markdown("### 최근 공격 실행 이력")
+    # with left:
+    st.markdown("### 최근 공격 실행 이력")
 
-        if not runs:
-            st.info("최근 실행 이력이 없습니다.")
-        else:
-            rows = []
-            for item in runs:
-                rows.append({
-                    "run_id": item.get("run_id", "-"),
-                    "타입": item.get("scenario_type", "general"),
-                    "시나리오": item.get("scenario_id", "-"),
-                    "타겟 IP": item.get("target_ip", "-"),
-                    "상태": item.get("status", "-"),
-                    "실행자": item.get("requested_by", "-"),
-                })
+    if not runs:
+        st.info("최근 실행 이력이 없습니다.")
+    else:
+        rows = []
+        for item in runs:
+            rows.append({
+                "run_id": item.get("run_id", "-"),
+                "타입": item.get("scenario_type", "general"),
+                "시나리오": item.get("scenario_id", "-"),
+                "타겟 IP": item.get("target_ip", "-"),
+                "상태": item.get("status", "-"),
+                "실행자": item.get("requested_by", "-"),
+            })
 
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     # 4. 실행 중 시나리오
-    with right:
-        st.markdown("### 실행 중 시나리오")
+    # with right:
+    #     st.markdown("### 실행 중 시나리오")
 
-        if not running_runs:
-            st.info("현재 실행 중인 시나리오가 없습니다.")
-        else:
-            for item in running_runs:
-                with st.container(border=True):
-                    st.write(f"시나리오: **{item.get('scenario_id', '-')}**")
-                    st.write(f"타겟 IP: **{item.get('target_ip', '-')}**")
-                    st.write(f"실행자: **{item.get('requested_by', '-')}**")
-                    st.write(f"시작 시간: **{item.get('started_at', '-')}**")
+        # if not running_runs:
+        #     st.info("현재 실행 중인 시나리오가 없습니다.")
+        # else:
+        #     for item in running_runs:
+        #         with st.container(border=True):
+        #             st.write(f"시나리오: **{item.get('scenario_id', '-')}**")
+        #             st.write(f"타겟 IP: **{item.get('target_ip', '-')}**")
+        #             st.write(f"실행자: **{item.get('requested_by', '-')}**")
+        #             st.write(f"시작 시간: **{item.get('started_at', '-')}**")
 
     st.divider()
 

@@ -241,12 +241,18 @@ def list_events(limit: int | None = None, since_minutes: int | None = 60):
 def delete_all_events():
     conn = get_conn()
     cur = conn.cursor()
+
     cur.execute("DELETE FROM events")
     deleted_count = cur.rowcount if cur.rowcount is not None else 0
-    conn.commit()
-    conn.close()
-    return {"result": "deleted", "deleted_count": deleted_count}
 
+    conn.commit()
+
+    # DELETE 후 SQLite 파일 공간 정리
+    cur.execute("VACUUM")
+
+    conn.close()
+
+    return {"result": "deleted", "deleted_count": deleted_count}
 
 
 def delete_event_by_id(event_row_id: int):

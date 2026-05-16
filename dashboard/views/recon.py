@@ -19,7 +19,7 @@ RECON_BASE_DIR = Path("/data/recon")
 
 
 def _render_recon_run_history():
-    col_title, col_refresh, col_auto = st.columns([6, 1.3, 2.7])
+    col_title, col_refresh = st.columns([8, 2])
 
     with col_title:
         st.markdown("### 정찰 실행 이력")
@@ -27,14 +27,6 @@ def _render_recon_run_history():
     with col_refresh:
         if st.button("새로고침", key="refresh_recon_history"):
             st.rerun()
-
-    with col_auto:
-        auto_refresh = st.toggle(
-            "실행 중 자동 갱신",
-            value=False,
-            key="recon_history_auto_refresh",
-            help="실행 중인 정찰 작업이 있을 때 5초마다 화면을 새로고침합니다."
-        )
 
     try:
         runs = get_scenario_runs(limit=20)
@@ -53,14 +45,12 @@ def _render_recon_run_history():
         return
 
     history_rows = []
-    running_count = 0
 
     for item in recon_runs:
         raw_status = item.get("status", "-")
 
         if raw_status == "running":
             display_status = "🔵 running"
-            running_count += 1
         elif raw_status == "success":
             display_status = "✅ success"
         elif raw_status == "failed":
@@ -96,9 +86,6 @@ def _render_recon_run_history():
     )
 
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
-
-    if running_count > 0:
-        st.info(f"현재 실행 중인 정찰 작업이 {running_count}개 있습니다.")
 
     st.markdown("### 정찰 실행 로그 확인")
 
@@ -169,12 +156,6 @@ def _render_recon_run_history():
             st.code(cached_log.get("log_text", ""), language="bash")
     else:
         st.info("정찰 실행 이력을 선택하고 로그를 불러오세요.")
-
-    if auto_refresh and running_count > 0:
-        import time
-        time.sleep(5)
-        st.rerun()
-
 
 def _list_recon_runs(tool: str):
     tool_dir = RECON_BASE_DIR / tool
