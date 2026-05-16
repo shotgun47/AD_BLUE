@@ -16,6 +16,11 @@ services:
       - ATTACK_RUNNER_TOKEN=${ATTACK_RUNNER_TOKEN}
       - EVENT_SAVE_MODE=${EVENT_SAVE_MODE}
       - BACKEND_IP=${BACKEND_IP}
+      - LLM_TRIAGE_ENABLED=true
+      - LLM_TRIAGE_MODEL=gemini/gemini-2.5-flash
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      #- ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_TRIAGE_TIMEOUT=20
     networks:
       - adlab-net
 

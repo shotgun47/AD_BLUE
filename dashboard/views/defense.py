@@ -13,6 +13,7 @@ from api_client import (
     get_event_collection_state,
     pause_event_collection,
     resume_event_collection,
+    run_event_llm_triage,
 )
 
 
@@ -26,6 +27,56 @@ def _get_current_target_ip():
     )
 
     return f"대상 IP: {target_ip}"
+
+# ==========================================
+# 컨텍스트 LLM 
+# ==========================================
+
+LLM_TARGET_RULE_IDS = {
+    "RULE-101",
+    "RULE-102",
+    "RULE-103",
+    "RULE-104",
+    "RULE-105",
+    "RULE-106",
+    "RULE-107",
+    "RULE-108",
+    "RULE-109",
+}
+
+
+def _matched_rule_ids(detection: dict) -> set[str]:
+    result = set()
+
+    if detection.get("rule_id"):
+        result.add(str(detection.get("rule_id")))
+
+    for rule in normalize_matched_rules(detection):
+        rule_id = rule.get("rule_id")
+        if rule_id:
+            result.add(str(rule_id))
+
+    return result
+
+
+def _is_llm_triage_target(detection: dict, risk: dict) -> bool:
+    if not detection.get("detected"):
+        return False
+
+    matched_rule_ids = _matched_rule_ids(detection)
+
+    # RULE-041 단독은 제외. 도구/정찰 관련 룰이 있을 때만 활성화.
+    if not (matched_rule_ids & LLM_TARGET_RULE_IDS):
+        return False
+
+    ai_context = risk.get("ai_context") or {}
+
+    # real_attack은 LLM 하향/오탐 판단 대상에서 제외
+    if ai_context.get("verdict") == "real_attack_no_downgrade":
+        return False
+
+    return True
+
 
 
 def _build_detection_summary(events):
@@ -552,6 +603,151 @@ def render_defense():
                         st.markdown("**메시지**")
                         st.write(message)
 
+
+
+
+                # -----------------------------
+                # 컨텍스트 기반 판단 블록
+                # -----------------------------
+                ai_context = risk.get("ai_context") or {}
+
+                st.divider()
+                st.markdown("**컨텍스트 기반 판단**")
+
+                if ai_context.get("enabled"):
+                    ctx_verdict = ai_context.get("verdict", "-")
+                    ctx_summary = ai_context.get("summary", "-")
+                    ctx_applied = ai_context.get("applied", False)
+                    related = ai_context.get("related_scenario") or {}
+                    ctx_reasons = ai_context.get("reasons") or []
+
+                    if ctx_applied:
+                        st.success(f"판정: **{ctx_verdict}**")
+                    else:
+                        st.info(f"판정: **{ctx_verdict}**")
+
+                    st.write(ctx_summary)
+
+                    if related:
+                        st.caption(
+                            f"관련 시나리오: "
+                            f"{related.get('scenario_id', '-')} / "
+                            f"{related.get('scenario_type', '-')} / "
+                            f"{related.get('status', '-')}"
+                        )
+
+                    if ctx_reasons:
+                        with st.expander("컨텍스트 판단 근거", expanded=False):
+                            for reason in ctx_reasons:
+                                st.write(f"- {reason}")
+                else:
+                    st.caption("컨텍스트 기반 판단 대상이 아닙니다.")
+
+
+                # -----------------------------
+                # LLM 2차 판단 블록
+                # -----------------------------
+                llm_triage = risk.get("llm_triage") or {}
+                llm_target = _is_llm_triage_target(detection, risk)
+                llm_called = bool(llm_triage.get("called"))
+
+                st.divider()
+                st.markdown("**LLM 2차 판단**")
+
+                last_llm_result = st.session_state.get(f"llm_triage_result_{event_row_id}")
+
+                if last_llm_result:
+                    result_status = last_llm_result.get("result")
+
+                    if result_status == "updated":
+                        st.success("LLM 판단 결과가 갱신되었습니다.")
+                    elif result_status == "skipped":
+                        st.warning(
+                            f"LLM 판단이 실행되지 않았습니다: "
+                            f"{last_llm_result.get('reason', '-')}"
+                        )
+                    elif result_status == "frontend_error":
+                        st.error(
+                            f"LLM 버튼 처리 중 오류: "
+                            f"{last_llm_result.get('message', '-')}"
+                        )
+                    else:
+                        st.info(f"LLM 처리 결과: {result_status}")
+
+
+
+                llm_col1, llm_col2 = st.columns([7, 3])
+
+                with llm_col1:
+                    if llm_called:
+                        verdict = llm_triage.get("verdict", "-")
+                        confidence = llm_triage.get("confidence", 0)
+                        summary = llm_triage.get("summary", "-")
+                        llm_error = llm_triage.get("error")
+
+                        if llm_error:
+                            st.error(f"LLM 호출 실패: **{verdict}**")
+                            st.write(summary)
+
+                            with st.expander("LLM 오류 상세", expanded=True):
+                                st.code(str(llm_error), language="text")
+                        else:
+                            st.success(f"판정 완료: **{verdict}** / 신뢰도: **{confidence}**")
+                            st.write(summary)
+
+                    elif llm_target:
+                        st.info("이 이벤트는 LLM 2차 판단 대상입니다. 버튼을 누르면 컨텍스트 기반 분석을 실행합니다.")
+                    else:
+                        st.caption("이 이벤트는 LLM 2차 판단 대상이 아닙니다.")
+
+                with llm_col2:
+                    if st.button(
+                        "LLM 판단 실행",
+                        key=f"llm_triage_{event_row_id}",
+                        disabled=(not llm_target) or event_row_id is None,
+                        help="도구/정찰 관련 룰이 탐지된 이벤트만 LLM 판단을 실행합니다.",
+                    ):
+                        try:
+                            st.session_state[f"llm_triage_clicked_{event_row_id}"] = True
+
+                            with st.spinner("LLM이 이벤트 컨텍스트를 분석 중입니다..."):
+                                result = run_event_llm_triage(event_row_id)
+
+                            st.session_state[f"llm_triage_result_{event_row_id}"] = result
+                            st.rerun()
+
+                        except Exception as e:
+                            st.session_state[f"llm_triage_result_{event_row_id}"] = {
+                                "result": "frontend_error",
+                                "message": str(e),
+                            }
+                            st.rerun()
+
+                if llm_called:
+                    with st.expander("LLM 판단 근거", expanded=False):
+                        suspicious_points = llm_triage.get("suspicious_points") or []
+                        benign_context = llm_triage.get("benign_context") or []
+                        recommended_action = llm_triage.get("recommended_action") or "-"
+
+                        st.markdown("**의심 근거**")
+                        if suspicious_points:
+                            for point in suspicious_points:
+                                st.write(f"- {point}")
+                        else:
+                            st.write("- 없음")
+
+                        st.markdown("**정상/실습 근거**")
+                        if benign_context:
+                            for item_text in benign_context:
+                                st.write(f"- {item_text}")
+                        else:
+                            st.write("- 없음")
+
+                        st.markdown("**권고 조치**")
+                        st.write(recommended_action)
+
+
+
                 st.divider()
                 st.markdown("**탐지 결과**")
 
@@ -589,46 +785,10 @@ def render_defense():
                                 st.write("대응 가이드:")
                                 for g in rule_guides:
                                     st.write(f"- {g}")
+
                 else:
                     st.info("매칭된 탐지 룰이 없습니다.")
 
-                if ai_context.get("enabled"):
-                    st.markdown("**AI/컨텍스트 2차 판정**")
-
-                    verdict = ai_context.get("verdict", "-")
-                    summary = ai_context.get("summary", "-")
-                    applied = ai_context.get("applied", False)
-                    related = ai_context.get("related_scenario") or {}
-                    context_reasons = ai_context.get("reasons") or []
-
-                    c_ai_1, c_ai_2, c_ai_3 = st.columns([3, 2, 5])
-                    c_ai_1.write(f"판정: **{verdict}**")
-                    c_ai_2.write(f"점수 보정 적용: **{applied}**")
-                    c_ai_3.write(f"요약: {summary}")
-
-                    if related:
-                        st.caption(
-                            f"관련 실행 이력: "
-                            f"{related.get('scenario_id', '-')} / "
-                            f"{related.get('scenario_type', '-')} / "
-                            f"{related.get('status', '-')}"
-                        )
-
-                    if context_reasons:
-                        with st.expander("컨텍스트 판단 근거", expanded=False):
-                            for reason in context_reasons:
-                                st.write(f"- {reason}")
-
-                # 기존 구조와의 호환을 위해 통합 사유/대응 가이드도 함께 출력
-                if reasons:
-                    with st.expander("통합 탐지 사유 보기", expanded=False):
-                        for r in reasons:
-                            st.write(f"- {r}")
-
-                if response_guide:
-                    with st.expander("통합 대응 가이드 보기", expanded=False):
-                        for g in response_guide:
-                            st.write(f"- {g}")
 
                 st.divider()
                 show_detail = st.toggle(

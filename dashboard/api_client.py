@@ -60,6 +60,14 @@ def resume_event_collection():
     return res.json()
 
 
+def run_event_llm_triage(event_row_id: int):
+    res = requests.post(
+        f"{BACKEND_URL}/events/{event_row_id}/llm-triage",
+        timeout=20,
+    )
+    res.raise_for_status()
+    return res.json()
+
 
 def delete_all_events():
     res = requests.delete(f"{BACKEND_URL}/events", timeout=10)

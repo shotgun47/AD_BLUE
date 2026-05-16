@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
 from app.services.scenario_service import list_scenario_runs
+from analysis.llm_triage import run_llm_triage, should_run_llm_triage
 
 import logging
 logger = logging.getLogger("event_save_policy")
@@ -121,7 +122,7 @@ def is_event_collection_paused() -> bool:
 
 
 # ------------------------------------------
-# 실행중인 시나리오 체크 (컨텍스트 판단)
+# 컨텍스트 
 # ------------------------------------------
 
 def get_recent_scenario_runs_for_context(limit: int = 20):
@@ -159,6 +160,107 @@ def should_load_scenario_context(event) -> bool:
     target_text = " ".join([service_name, image, command_line, message])
 
     return any(keyword in target_text for keyword in keywords)
+
+
+def run_llm_triage_for_event(event_row_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, event_json, normalized_json, detection_json, risk_json
+        FROM events
+        WHERE id = ?
+    """, (event_row_id,))
+
+    row = cur.fetchone()
+
+    if not row:
+        conn.close()
+        return {
+            "result": "not_found",
+            "event_row_id": event_row_id,
+        }
+
+    try:
+        event_dict = json.loads(row["event_json"]) if row["event_json"] else {}
+    except Exception:
+        event_dict = {}
+
+    try:
+        normalized = json.loads(row["normalized_json"]) if row["normalized_json"] else {}
+    except Exception:
+        normalized = {}
+
+    try:
+        detection = json.loads(row["detection_json"]) if row["detection_json"] else {}
+    except Exception:
+        detection = {}
+
+    try:
+        risk = json.loads(row["risk_json"]) if row["risk_json"] else {}
+    except Exception:
+        risk = {}
+
+    if not should_run_llm_triage(detection, risk):
+        risk["llm_triage"] = {
+            "enabled": False,
+            "called": False,
+            "verdict": "not_target",
+            "confidence": 0.0,
+            "summary": "이 이벤트는 LLM 2차 판단 대상이 아닙니다.",
+            "suspicious_points": [],
+            "benign_context": [],
+            "recommended_action": "기존 룰 탐지 결과를 기준으로 확인하세요.",
+            "error": "not_target",
+        }
+
+        cur.execute("""
+            UPDATE events
+            SET risk_json = ?
+            WHERE id = ?
+        """, (
+            json.dumps(risk, ensure_ascii=False),
+            event_row_id,
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "result": "skipped",
+            "reason": "not_target",
+            "event_row_id": event_row_id,
+            "llm_triage": risk["llm_triage"],
+        }
+
+    llm_triage = run_llm_triage(
+        event=event_dict,
+        normalized=normalized,
+        detection=detection,
+        risk=risk,
+    )
+
+    risk["llm_triage"] = llm_triage
+
+    cur.execute("""
+        UPDATE events
+        SET risk_json = ?
+        WHERE id = ?
+    """, (
+        json.dumps(risk, ensure_ascii=False),
+        event_row_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "result": "updated",
+        "event_row_id": event_row_id,
+        "llm_triage": llm_triage,
+    }
+
+
 
 # ------------------------------------------
 # 저장 모드 (debug, lab, alert)

@@ -12,6 +12,7 @@ from app.services.event_service import (
     get_event_collection_state,
     pause_event_collection,
     resume_event_collection,
+    run_llm_triage_for_event
 )
 from app.services.scenario_service import (
     run_scenario,
@@ -70,6 +71,15 @@ def pause_events_collection(payload: dict = Body(default={})):
 def resume_events_collection():
     return resume_event_collection()
 
+
+@app.post("/events/{event_row_id}/llm-triage")
+def llm_triage_event(event_row_id: int):
+    result = run_llm_triage_for_event(event_row_id)
+
+    if result.get("result") == "not_found":
+        raise HTTPException(status_code=404, detail="event not found")
+
+    return result
 
 
 @app.delete("/events")

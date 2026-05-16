@@ -164,6 +164,18 @@ def build_event_bundle(
         scenario_runs=scenario_runs,
     )
 
+    risk["llm_triage"] = {
+        "enabled": False,
+        "called": False,
+        "verdict": "not_requested",
+        "confidence": 0.0,
+        "summary": "LLM 2차 판단이 아직 실행되지 않았습니다.",
+        "suspicious_points": [],
+        "benign_context": [],
+        "recommended_action": "",
+        "error": None,
+    }
+
     try:
         original_event = json.loads(event.raw_json) if event.raw_json else {}
     except (TypeError, json.JSONDecodeError):
