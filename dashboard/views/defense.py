@@ -618,7 +618,12 @@ def render_defense():
                     result_status = last_llm_result.get("result")
 
                     if result_status == "updated":
-                        st.success("LLM 판단 결과가 갱신되었습니다.")
+                        llm_result = last_llm_result.get("llm_triage") or {}
+
+                        if llm_result.get("error"):
+                            st.error("LLM 판단 요청은 처리됐지만, 모델 응답 처리 중 오류가 발생했습니다.")
+                        else:
+                            st.success("LLM 판단 결과가 갱신되었습니다.")
                     elif result_status == "skipped":
                         st.warning(
                             f"LLM 판단이 실행되지 않았습니다: "

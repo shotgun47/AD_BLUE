@@ -1,6 +1,9 @@
 import os
 import uuid
 import requests
+from datetime import datetime, timedelta
+
+
 
 ATTACK_RUNNER_URL = os.getenv("ATTACK_RUNNER_URL", "")
 ATTACK_RUNNER_TOKEN = os.getenv("ATTACK_RUNNER_TOKEN", "")
@@ -142,3 +145,59 @@ def list_running_scenario_runs():
         return res.json()
     except requests.RequestException as e:
         return {"result": "error", "message": f"Failed to get running scenario runs: {e}"}
+    
+
+# ------------------------------------------
+# 시나리오 실행 목록 필터링 
+# ------------------------------------------
+
+def _parse_iso_time(value):
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _is_time_overlapped_with_event(event_time: str, run: dict, margin_minutes: int = 5) -> bool:
+    event_dt = _parse_iso_time(event_time)
+    started_at = _parse_iso_time(run.get("started_at"))
+    finished_at = _parse_iso_time(run.get("finished_at"))
+
+    if not event_dt or not started_at:
+        return False
+
+    start = started_at - timedelta(minutes=margin_minutes)
+
+    if finished_at:
+        end = finished_at + timedelta(minutes=margin_minutes)
+    else:
+        end = started_at + timedelta(minutes=30)
+
+    return start <= event_dt <= end
+
+
+def filter_scenario_runs_for_llm(event_dict: dict, scenario_runs: list[dict]) -> list[dict]:
+    """
+    LLM에는 tools / detection_test 중 이벤트 시간과 관련 있는 실행 이력만 전달한다.
+    real_attack은 제외한다.
+    """
+    event_time = event_dict.get("event_time")
+    allowed_types = {"tools", "detection_test"}
+
+    result = []
+
+    for run in scenario_runs or []:
+        scenario_type = run.get("scenario_type", "general")
+
+        if scenario_type not in allowed_types:
+            continue
+
+        if event_time and not _is_time_overlapped_with_event(event_time, run):
+            continue
+
+        result.append(run)
+
+    return result[:5]

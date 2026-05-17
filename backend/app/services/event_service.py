@@ -5,10 +5,13 @@ from datetime import datetime, timedelta
 
 from app.db import get_conn
 from analysis.bundle_builder import build_event_bundle
-from app.services.scenario_service import list_scenario_runs
+from app.services.scenario_service import list_scenario_runs, filter_scenario_runs_for_llm
 from analysis.llm_triage import run_llm_triage, should_run_llm_triage
 
 import logging
+
+
+
 logger = logging.getLogger("event_save_policy")
 
 SAVE_EVENT_LOCK = threading.Lock()
@@ -235,9 +238,14 @@ def run_llm_triage_for_event(event_row_id: int):
     
 
     try:
-        scenario_runs = get_recent_scenario_runs_for_context(limit=10)
+        raw_scenario_runs = get_recent_scenario_runs_for_context(limit=10)
     except Exception:
-        scenario_runs = []
+        raw_scenario_runs = []
+
+    scenario_runs = filter_scenario_runs_for_llm(
+        event_dict=event_dict,
+        scenario_runs=raw_scenario_runs,
+    )
 
     llm_triage = run_llm_triage(
         event=event_dict,

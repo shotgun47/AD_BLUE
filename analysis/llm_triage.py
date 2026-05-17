@@ -50,6 +50,23 @@ def _matched_rule_ids(detection: dict) -> set[str]:
     return result
 
 
+def _simplify_scenario_runs(scenario_runs: list[dict] | None, limit: int = 5) -> list[dict]:
+    result = []
+
+    for run in (scenario_runs or [])[:limit]:
+        result.append({
+            "scenario_id": run.get("scenario_id"),
+            "scenario_type": run.get("scenario_type"),
+            "requested_by": run.get("requested_by"),
+            "target_ip": run.get("target_ip"),
+            "status": run.get("status"),
+            "started_at": run.get("started_at"),
+            "finished_at": run.get("finished_at"),
+        })
+
+    return result
+
+
 def should_run_llm_triage(detection: dict, risk: dict) -> bool:
     if not LLM_TRIAGE_ENABLED:
         return False
@@ -163,7 +180,7 @@ def _build_payload(
             "severity": risk.get("severity"),
             "base_reasons": risk.get("base_reasons"),
         },
-        "scenario_runs": scenario_runs,
+        "scenario_runs": _simplify_scenario_runs(scenario_runs),
     }
 
 
@@ -177,21 +194,34 @@ def _extract_json_from_text(text: str) -> dict:
     cleaned = text.strip()
 
     if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        cleaned = cleaned.replace("json\n", "", 1).strip()
+        cleaned = cleaned.strip("`").strip()
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
 
     try:
         return json.loads(cleaned)
-    except Exception:
-        pass
+    except Exception as first_error:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
 
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError(
+                "JSON object not found in response. "
+                f"parse_error={first_error}; "
+                f"length={len(cleaned)}; "
+                f"preview={cleaned[:1500]}"
+            )
 
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError(f"JSON object not found in response: {cleaned[:300]}")
+        candidate = cleaned[start:end + 1]
 
-    return json.loads(cleaned[start:end + 1])
+        try:
+            return json.loads(candidate)
+        except Exception as second_error:
+            raise ValueError(
+                "Invalid JSON object in response. "
+                f"parse_error={second_error}; "
+                f"preview={candidate[:1500]}"
+            )
 
 
 def run_llm_triage(
@@ -229,20 +259,29 @@ def run_llm_triage(
 - scenario_runs에서 이벤트 시간과 겹치는 실행 이력이 있는지 확인한다.
 - 겹치는 실행 이력의 scenario_type이 tools이면 승인된 정찰 도구 실행 가능성이 높다.
 - scenario_type이 detection_test이면 탐지 테스트 가능성이 높다.
-- scenario_type이 real_attack이면 정상/오탐으로 낮춰 판단하지 않는다.
+- real_attack 시나리오는 LLM 오탐 보정 대상에서 제외되므로 입력 scenario_runs에 포함되지 않는다.
 - 실행 이력이 없는데 도구/정찰 룰이 탐지되면 suspicious_unapproved_activity로 본다.
 - 확실하지 않은 내용은 단정하지 말고 needs_review로 둔다.
 - 최종 위험도 점수 자체를 바꾸지는 말고, 분석가가 이해할 수 있는 판단 근거와 권고 조치만 작성한다.
 
-출력은 반드시 아래 JSON 스키마를 따른다.
 
+출력 규칙:
+- 출력은 반드시 아래 JSON 스키마를 따른다.
+- 반드시 JSON 객체 하나만 출력한다.
+- 코드블록, 마크다운, 설명 문장을 붙이지 않는다.
+- summary는 80자 이내로 작성한다.
+- suspicious_points는 최대 2개만 작성한다.
+- benign_context는 최대 2개만 작성한다.
+- recommended_action은 100자 이내로 작성한다.
+
+JSON 스키마:
 {{
   "verdict": "authorized_tool_activity | suspicious_unapproved_activity | detection_test_activity | needs_review",
   "confidence": 0.0,
-  "summary": "한두 문장 요약",
-  "suspicious_points": ["의심 근거"],
-  "benign_context": ["정상/실습으로 볼 수 있는 근거"],
-  "recommended_action": "분석가 권고 조치"
+  "summary": "80자 이내 요약",
+  "suspicious_points": ["최대 2개"],
+  "benign_context": ["최대 2개"],
+  "recommended_action": "100자 이내 권고"
 }}
 
 입력 JSON:
@@ -263,8 +302,9 @@ def run_llm_triage(
                 },
             ],
             temperature=0.2,
-            max_tokens=1200,
+            max_tokens=3000,
             timeout=LLM_TRIAGE_TIMEOUT,
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content or ""
