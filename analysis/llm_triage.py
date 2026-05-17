@@ -24,6 +24,10 @@ litellm.drop_params = True
 
 
 LLM_TARGET_RULE_IDS = {
+    "RULE-063",
+    "RULE-064",
+    "RULE-065",
+
     "RULE-101",
     "RULE-102",
     "RULE-103",
@@ -260,10 +264,14 @@ def run_llm_triage(
 - 겹치는 실행 이력의 scenario_type이 tools이면 승인된 정찰 도구 실행 가능성이 높다.
 - scenario_type이 detection_test이면 탐지 테스트 가능성이 높다.
 - real_attack 시나리오는 LLM 오탐 보정 대상에서 제외되므로 입력 scenario_runs에 포함되지 않는다.
+- matched_rules에 RULE-063, RULE-064, RULE-065가 있으면 AS-REP Roasting 관련 이벤트로 판단한다.
+- RULE-063은 Kerberos Pre-Authentication이 사용되지 않은 AS-REQ 이벤트다.
+- RULE-064는 짧은 시간 내 여러 계정에 대한 AS-REP Roasting 스캐닝 가능성이다.
+- RULE-065는 특정 계정에 대한 반복 AS-REP Roasting 시도 가능성이다.
+- scenario_runs에 관련 tools/detection_test가 없고 AS-REP 룰이 탐지되면 suspicious_unapproved_activity 또는 real_attack_activity로 판단한다.
 - 실행 이력이 없는데 도구/정찰 룰이 탐지되면 suspicious_unapproved_activity로 본다.
 - 확실하지 않은 내용은 단정하지 말고 needs_review로 둔다.
 - 최종 위험도 점수 자체를 바꾸지는 말고, 분석가가 이해할 수 있는 판단 근거와 권고 조치만 작성한다.
-
 
 출력 규칙:
 - 출력은 반드시 아래 JSON 스키마를 따른다.
@@ -276,7 +284,7 @@ def run_llm_triage(
 
 JSON 스키마:
 {{
-  "verdict": "authorized_tool_activity | suspicious_unapproved_activity | detection_test_activity | needs_review",
+  "verdict": "authorized_tool_activity | suspicious_unapproved_activity | detection_test_activity | real_attack_activity | needs_review"
   "confidence": 0.0,
   "summary": "80자 이내 요약",
   "suspicious_points": ["최대 2개"],

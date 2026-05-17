@@ -142,7 +142,7 @@ def should_load_scenario_context(event) -> bool:
     event_id = _get_event_id(event)
 
     # 도구 실행 탐지 가능성이 있는 이벤트만 컨텍스트 조회
-    if event_id in {"4688", "1", "3", "22"}:
+    if event_id in {"4688", "1", "3", "22", "4103", "4104", "4768", "4769", "4771"}:
         return True
 
     service_name = str(getattr(event, "service_name", "") or "").lower()

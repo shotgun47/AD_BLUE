@@ -586,7 +586,7 @@ rules:
     enabled: true
     match:
       event_id: "4768"
-      pre_auth_type: 0  # Pre-Auth 미사용
+      pre_auth_type: "0"  # Pre-Auth 미사용
     severity: medium
     score: 50
     attack:
@@ -603,7 +603,7 @@ rules:
     enabled: true
     match:
       event_id: "4768"
-      pre_auth_type: 0
+      pre_auth_type: "0"
     group_by: [source_ip]
     window:
       minutes: 5
@@ -625,7 +625,7 @@ rules:
     enabled: true
     match:
       event_id: "4768"
-      pre_auth_type: 0
+      pre_auth_type: "0"
     group_by: [target_user]
     window:
       minutes: 5
@@ -727,39 +727,38 @@ rules:
 
   # 정찰 도구 탐지 룰
   - rule_id: RULE-101
-    name: PowerView 정찰 도구 실행 의심 - Sysmon
+    name: Kerberos AS-REQ 급증 - 정찰 도구 의심
     enabled: true
-    type: single_event
+    type: aggregation
     match:
-      event_id: "1"
-    contains_any:
-      command_line:
-        - "powerview"
-        - "get-domainuser"
-        - "get-domaingroup"
-        - "get-domaincomputer"
-        - "get-domainou"
-        - "find-interestingdomainacl"
-        - "get-domaintrust"
-    severity: high
-    score: 75
+      event_id: "4768"
+    group_by: [computer_name, username]
+    window:
+      minutes: 2
+    threshold:
+      count_gte: 10
+    severity: medium
+    score: 55
     attack:
       tactic: Discovery
-      technique: T1087 / T1069 / T1018
+      technique: T1087
     response_guide:
-      - PowerView 실행이 승인된 정찰 도구 실행인지 확인
-      - 동일 시간대 정찰 시나리오 실행 이력 확인
+      - 짧은 시간 내 Kerberos AS 요청이 반복 발생했습니다.
+      - PingCastle/AD 정찰 도구 실행 이력과 시간대를 비교하세요.
+      - 승인되지 않은 경우 계정 열거 또는 자동화된 도메인 조회 가능성을 확인하세요.
 
   - rule_id: RULE-102
-    name: PingCastle 실행 의심 - Sysmon
+    name: PingCastle 실행 의심 - Windows 4688
     enabled: true
     type: single_event
     match:
-      event_id: "1"
+      event_id: "4688"
     contains_any:
-      command_line:
-        - "pingcastle"
+      message:
+        - "PingCastle.exe"
+        - "PingCastle"
         - "healthcheck"
+        - "--healthcheck"
         - "ad_hc_"
     severity: medium
     score: 55
@@ -767,30 +766,32 @@ rules:
       tactic: Discovery
       technique: T1482
     response_guide:
-      - PingCastle 실행이 승인된 점검 작업인지 확인
-      - 실행 시간과 실행자 확인
+      - PingCastle HealthCheck 실행 흔적입니다.
+      - 동일 시간대 정찰 도구 실행 이력과 비교하세요.
+      - 승인되지 않은 실행이면 실행 계정과 대상 도메인을 확인하세요.
 
   - rule_id: RULE-103
-    name: BloodHound 수집 도구 실행 의심 - Sysmon
+    name: PingCastle PowerShell ScriptBlock 실행 의심
     enabled: true
     type: single_event
     match:
-      event_id: "1"
+      event_id: "4104"
     contains_any:
-      command_line:
-        - "bloodhound-python"
-        - "sharphound"
-        - "sharphound.exe"
-        - "collectionmethod"
-        - "-collectionmethod"
-    severity: high
-    score: 80
+      message:
+        - "PingCastle.exe"
+        - "PingCastle"
+        - "healthcheck"
+        - "--healthcheck"
+        - "ad_hc_"
+    severity: medium
+    score: 60
     attack:
       tactic: Discovery
-      technique: T1087 / T1069 / T1482
+      technique: T1482
     response_guide:
-      - BloodHound/SharpHound 실행이 승인된 수집인지 확인
-      - 실행 계정과 대상 도메인 확인
+      - PowerShell ScriptBlock 로그에서 PingCastle 실행 문자열이 확인되었습니다.
+      - 승인된 정찰 도구 실행인지 확인하세요.
+      - 동일 시간대 Kerberos 이벤트 급증 여부를 함께 확인하세요.
 
   - rule_id: RULE-104
     name: AD 정찰성 LDAP 연결 의심

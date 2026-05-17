@@ -33,6 +33,10 @@ def _get_current_target_ip():
 # ==========================================
 
 LLM_TARGET_RULE_IDS = {
+    "RULE-063",
+    "RULE-064",
+    "RULE-065",
+
     "RULE-101",
     "RULE-102",
     "RULE-103",
@@ -42,6 +46,11 @@ LLM_TARGET_RULE_IDS = {
     "RULE-107",
     "RULE-108",
     "RULE-109",
+    "RULE-110",
+    "RULE-111",
+    "RULE-112",
+    "RULE-113",
+    "RULE-114",
 }
 
 
@@ -321,6 +330,7 @@ def render_defense():
                     event_id = str(item.get("event_id", "-"))
                     normalized = safe_json_loads(item.get("normalized_json"))
                     event_type = normalized.get("event_type", "unknown")
+
                     meta = get_event_meta(event_id, event_type)
 
                     summary_rows.append({
@@ -497,13 +507,13 @@ def render_defense():
             group_name = item.get("group_name", "-")
             message = item.get("message", "-")
 
-            meta = get_event_meta(str(event_id), event_type)
-
             event_type = normalized.get("event_type", "-")
             host_role = normalized.get("host_role", "-")
             account_type = normalized.get("account_type", "-")
             is_admin = normalized.get("is_admin_account", False)
             is_off_hours = normalized.get("is_off_hours", False)
+
+            meta = get_event_meta(str(event_id), event_type)
 
             detected = detection.get("detected", False)
             matched_rules = normalize_matched_rules(detection)

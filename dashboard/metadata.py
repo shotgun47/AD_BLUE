@@ -74,6 +74,31 @@ EVENT_CATALOG = {
         "attack_technique": "DNS",
     },
 
+    "4103": {
+        "type": "powershell_module",
+        "label": "PowerShell 모듈 로깅",
+        "description": (
+            "PowerShell 명령 실행 과정에서 모듈 또는 cmdlet 호출 정보가 기록된 이벤트입니다. "
+            "정찰 도구 실행, 원격 PowerShell 사용, AD 관련 cmdlet 호출 흐름을 확인하는 데 활용됩니다."
+        ),
+        "source": "Microsoft-Windows-PowerShell/Operational",
+        "category": "PowerShell",
+        "attack_tactic": "Execution",
+        "attack_technique": "T1059.001",
+    },
+    "4104": {
+        "type": "powershell_script_block",
+        "label": "PowerShell ScriptBlock 실행",
+        "description": (
+            "PowerShell에서 실행된 스크립트 블록 내용이 기록된 이벤트입니다. "
+            "4688 프로세스 생성 로그만으로는 보이지 않는 PowerView 함수 호출, "
+            "Invoke-Command, 원격 실행 스크립트, PingCastle 실행 구문 등을 확인할 수 있습니다."
+        ),
+        "source": "Microsoft-Windows-PowerShell/Operational",
+        "category": "PowerShell",
+        "attack_tactic": "Execution",
+        "attack_technique": "T1059.001",
+    },
     "4624": {
         "type": "login_success",
         "label": "로그인 성공",
@@ -293,6 +318,8 @@ EVENT_TYPE_LABELS = {
     "kerberos_request": "Kerberos 요청",
     "kerberos_failure": "Kerberos 실패",
     "unknown": "알 수 없음",
+    "powershell_module": "PowerShell 모듈 로깅",
+    "powershell_script_block": "PowerShell ScriptBlock 실행",
 }
 
 
