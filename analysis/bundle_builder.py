@@ -44,9 +44,14 @@ def _unique_keep_order(values: List[Any]) -> List[Any]:
 
 def _score_value(result: Dict[str, Any]) -> int:
     try:
-        return int((result.get("risk") or {}).get("final_score", 0))
+        return int(
+            result.get("rule_score")
+            or (result.get("risk") or {}).get("final_score")
+            or 0
+        )
     except Exception:
         return 0
+    
 
 def build_event_bundle(
     event: Any,

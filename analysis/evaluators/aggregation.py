@@ -157,6 +157,7 @@ def evaluate_aggregation_rule(
         "detected": True,
         "rule_id": rule.get("rule_id"),
         "rule_name": rule.get("name"),
+        "rule_score": base_score,
         "reason": [reason_text],
         "attack_tactic": rule.get("attack", {}).get("tactic"),
         "attack_technique": rule.get("attack", {}).get("technique"),

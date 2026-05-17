@@ -297,7 +297,6 @@ def _render_compare_cards(title: str, before_run: str, before: dict, latest: dic
 
         rows.append({
             "항목": label,
-            "선택"
             "이전 실행": before_value,
             "최신 실행": latest_value,
             "변화": delta_label,

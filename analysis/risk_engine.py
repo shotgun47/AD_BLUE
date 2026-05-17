@@ -15,11 +15,6 @@ TOOL_RULE_IDS = {
     "RULE-107",
     "RULE-108",
     "RULE-109",
-    "RULE-110",
-    "RULE-111",
-    "RULE-112",
-    "RULE-113",
-    "RULE-114",
 }
 
 
@@ -135,7 +130,6 @@ def _build_base_score(normalized: dict, detection: dict) -> tuple[int, list[str]
     reasons = []
 
     event_type = normalized.get("event_type")
-    detected = detection.get("detected", False)
 
     rule_score = _to_int(detection.get("rule_score"), 0)
     if rule_score:
@@ -174,12 +168,7 @@ def _build_base_score(normalized: dict, detection: dict) -> tuple[int, list[str]
             score += 20
             reasons.append("네트워크 연결 이벤트 기본 점수")
 
-
-    if detected:
-        score += 25
-        reasons.append("룰 탐지 매칭")
-
-    return score, reasons
+    return min(score, 100), reasons
 
 
 def _calculate_context_weight(normalized: dict) -> tuple[float, list[str]]:
@@ -274,7 +263,7 @@ def calculate_risk(
         })
         scenario_adjustment += 10
 
-    final_score = max(0, min(100, base_score + scenario_adjustment))
+    final_score = max(0, min(100, weighted_score + scenario_adjustment))
     severity = _severity_from_score(final_score)
 
     return {

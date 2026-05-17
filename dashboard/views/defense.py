@@ -46,11 +46,6 @@ LLM_TARGET_RULE_IDS = {
     "RULE-107",
     "RULE-108",
     "RULE-109",
-    "RULE-110",
-    "RULE-111",
-    "RULE-112",
-    "RULE-113",
-    "RULE-114",
 }
 
 
