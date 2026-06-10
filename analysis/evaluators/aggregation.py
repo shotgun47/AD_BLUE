@@ -11,8 +11,19 @@ def _get_field_value(field: str, event_dict: Dict[str, Any], normalized: Dict[st
 def _match_conditions(match: Dict[str, Any], event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> bool:
     for field, expected in match.items():
         actual = _get_field_value(field, event_dict, normalized)
-        if actual != expected:
+
+        if actual is None:
             return False
+
+        actual_str = str(actual).lower()
+        expected_str = str(expected).lower()
+
+        if actual_str.startswith("%{") and actual_str.endswith("}"):
+            return False
+
+        if actual_str != expected_str:
+            return False
+
     return True
 
 
@@ -42,34 +53,39 @@ def _apply_score_modifiers(
     event_dict: Dict[str, Any],
     normalized: Dict[str, Any],
 ) -> Dict[str, Any]:
-    weight = 0
+    """
+    risk_engine.py의 가중치 및 등급 산정 로직과 일치하도록 수정되었습니다.
+    """
+    # 1. 기본 배수(Weight) 설정
+    weight = 1.0
 
-    for modifier in rule.get("score_modifiers", []):
-        field = modifier.get("field")
-        op = modifier.get("op")
-        expected = modifier.get("value")
-        add_value = int(modifier.get("add", 0))
+    is_privileged = normalized.get("is_privileged", False)
+    is_off_hours = normalized.get("is_off_hours", False)
 
-        actual = _get_field_value(field, event_dict, normalized)
+    if is_privileged:
+        weight += 0.4  # 특권 계정 악용 우려 시 +0.4 가산 (1.4배)
+       
+    if is_off_hours:
+        weight += 0.3  # 비업무 시간대(새벽/주말) 행위 시 +0.3 가산 (1.3배)
 
-        if op == "eq" and actual == expected:
-            weight += add_value
+    # 2. 최종 점수 계산 (반올림 적용 및 100점 상한선 고정)
+    calculated_score = base_score * weight
+    final_score = min(round(calculated_score), 100)
 
-    final_score = base_score + weight
-
-    if final_score >= 80:
-        severity = "critical"
-    elif final_score >= 60:
-        severity = "high"
-    elif final_score >= 30:
-        severity = "medium"
+    # 3. 상한선 100점 기준 임계치 등급 판정 (risk_engine.py와 동일하게 5단계 동기화)
+    if final_score >= 90:
+        severity = "critical"   # 당장 격리 및 즉각 대응 필요 (SOC 비상)
+    elif final_score >= 70:
+        severity = "high"       # 침해 징후 농후 (우선 분석)
+    elif final_score >= 40:
+        severity = "medium"     # 이상 행위 주의 단계 (일반 관제)
     elif final_score > 0:
-        severity = "low"
+        severity = "low"        # 단순 특이 사항
     else:
-        severity = rule.get("severity", "low")
+        severity = "none"       # 정상 행위
 
     return {
-        "weight": weight,
+        "weight": round(weight, 1),
         "final_score": final_score,
         "severity": severity,
     }
@@ -108,7 +124,10 @@ def evaluate_aggregation_rule(
         if not item_time:
             continue
 
-        if item_time < window_start or item_time > event_time:
+        # if item_time < window_start or item_time > event_time:
+        #     continue
+        window_end = event_time + timedelta(minutes=window_minutes)
+        if item_time < window_start or item_time > window_end:
             continue
 
         item_group_key = _build_group_key(group_fields, item_event, item_normalized)
@@ -128,13 +147,18 @@ def evaluate_aggregation_rule(
 
     target_name = event_dict.get("target_user") or event_dict.get("username")
 
+    group_text = ", ".join(group_fields) if group_fields else "전체"
+    reason_text = (
+        f"[{rule.get('name')}] 탐지: "
+        f"{group_text} 기준 {window_minutes}분 내 {count}회 이상 발생"
+    )
+
     return {
         "detected": True,
         "rule_id": rule.get("rule_id"),
         "rule_name": rule.get("name"),
-        "reason": [
-            f"동일 계정 {target_name} 기준 {window_minutes}분 내 로그인 실패 {count}회 이상"
-        ],
+        "rule_score": base_score,
+        "reason": [reason_text],
         "attack_tactic": rule.get("attack", {}).get("tactic"),
         "attack_technique": rule.get("attack", {}).get("technique"),
         "response_guide": rule.get("response_guide", []),

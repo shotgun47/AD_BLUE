@@ -3,29 +3,18 @@ rules:
     name: 로그인 실패 급증
     type: aggregation
     enabled: true
-
     match:
       event_type: login_failure
-
     group_by: [target_user]
     window:
       minutes: 5
     threshold:
       count_gte: 10
-
     severity: medium
-    score: 50
-
-    score_modifiers:
-      - field: is_admin_account
-        op: eq
-        value: true
-        add: 20
-
+    score: 40 # 50 -> 40으로 소폭 하향 (일반 계정 잦은 오입력 고려)
     attack:
       tactic: Credential Access
       technique: T1110
-
     response_guide:
       - 계정 잠금 정책 확인
       - source_ip 차단 검토
@@ -37,8 +26,8 @@ rules:
     match:
       event_id: "4624"
       is_admin_account: true
-    severity: medium
-    score: 30
+    severity: low
+    score: 20 # 기본 로그인은 30->20점으로 낮춤
     attack:
       tactic: Initial Access
       technique: Valid Accounts
@@ -54,8 +43,8 @@ rules:
     match:
       event_id: "4634"
       is_admin_account: true
-    severity: low
-    score: 15
+    severity: informational
+    score: 5 # 15 -> 5로 하향 (단순 상태 기록용)
     attack:
       tactic: None
       technique: Logoff Event
@@ -71,7 +60,7 @@ rules:
     match:
       event_id: "4720"
     severity: medium
-    score: 50
+    score: 40 # 50 -> 40 조정 (인프라 확장 시 대량 발생 고려)
     attack:
       tactic: Persistence
       technique: Create Account
@@ -168,8 +157,8 @@ rules:
     match:
       event_id: "4729"
       group_name: "Domain Admins"
-    severity: high
-    score: 70
+    severity: medium # high -> medium
+    score: 50 # 70 -> 50 하향 (정상 권한 회수 작업이 많음)
     attack:
       tactic: Defense Evasion
       technique: Account Manipulation
@@ -202,8 +191,8 @@ rules:
     match:
       event_id: "4733"
       group_name: "Administrators"
-    severity: medium
-    score: 60
+    severity: low # medium -> low
+    score: 35 # 60 -> 35 하향
     attack:
       tactic: Defense Evasion
       technique: Account Manipulation
@@ -236,8 +225,8 @@ rules:
     match:
       event_id: "4757"
       group_name: "Enterprise Admins"
-    severity: high
-    score: 75
+    severity: medium # high -> medium
+    score: 55 # 75 -> 55 하향
     attack:
       tactic: Defense Evasion
       technique: Account Manipulation

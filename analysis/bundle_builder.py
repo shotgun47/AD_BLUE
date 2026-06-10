@@ -8,8 +8,10 @@ from analysis.risk_engine import calculate_risk
 def build_default_detection() -> dict:
     return {
         "detected": False,
+        # 대표 탐지 정보: 기존 risk_engine / 기존 대시보드 호환용
         "rule_id": None,
         "rule_name": None,
+        "rule_score": 0,
         "reason": [],
         "attack_tactic": None,
         "attack_technique": None,
@@ -42,6 +44,10 @@ def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]]
     }
 
     normalized = normalize_event(event)
+    if normalized.get("service_name"):
+        event_dict["service_name"] = normalized["service_name"]
+    if normalized.get("group_name"):
+        event_dict["group_name"] = normalized["group_name"]
 
     # 3. 탐지 엔진 실행 (이제 모든 탐지 결과를 리스트로 수신)
     detection_results = evaluate_event(
