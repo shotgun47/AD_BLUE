@@ -16,53 +16,12 @@ def build_default_detection() -> dict:
         "attack_tactic": None,
         "attack_technique": None,
         "response_guide": [],
-        # 다중 탐지 정보
-        "all_rules": [],
-        "matched_rules": [],
+        "all_rules": [] 
     }
 
-
-def _as_list(value: Any) -> List[Any]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
-
-
-def _unique_keep_order(values: List[Any]) -> List[Any]:
-    result = []
-    seen = set()
-    for value in values:
-        key = json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(value)
-    return result
-
-
-def _score_value(result: Dict[str, Any]) -> int:
-    try:
-        return int(
-            result.get("rule_score")
-            or (result.get("risk") or {}).get("final_score")
-            or 0
-        )
-    except Exception:
-        return 0
-    
-
-def build_event_bundle(
-    event: Any,
-    recent_events: Optional[List[Dict[str, Any]]] = None,
-    scenario_runs: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+def build_event_bundle(event: Any, recent_events: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     if recent_events is None:
         recent_events = []
-
-    if scenario_runs is None:
-        scenario_runs = []
 
     event_dict = {
         "event_time": event.event_time,
@@ -82,35 +41,6 @@ def build_event_bundle(
         # AS-REP Roasting 탐지를 위한 필드 (정규화 단계에서 추출됨)
         "pre_auth_type": getattr(event, 'pre_auth_type', None),
         "ticket_encryption_type": getattr(event, 'ticket_encryption_type', None),
-
-        # Sysmon 확장 필드
-        "image": getattr(event, "image", None),
-        "command_line": getattr(event, "command_line", None),
-        "parent_image": getattr(event, "parent_image", None),
-        "parent_command_line": getattr(event, "parent_command_line", None),
-        "current_directory": getattr(event, "current_directory", None),
-        "user": getattr(event, "user", None),
-
-        "destination_ip": getattr(event, "destination_ip", None),
-        "destination_port": getattr(event, "destination_port", None),
-        "source_port": getattr(event, "source_port", None),
-        "protocol": getattr(event, "protocol", None),
-
-        "image_loaded": getattr(event, "image_loaded", None),
-        "signed": getattr(event, "signed", None),
-        "signature_status": getattr(event, "signature_status", None),
-        "hashes": getattr(event, "hashes", None),
-
-        "target_filename": getattr(event, "target_filename", None),
-        "creation_utc_time": getattr(event, "creation_utc_time", None),
-
-        "target_object": getattr(event, "target_object", None),
-        "registry_event_type": getattr(event, "registry_event_type", None),
-        "details": getattr(event, "details", None),
-
-        "query_name": getattr(event, "query_name", None),
-        "query_status": getattr(event, "query_status", None),
-        "query_results": getattr(event, "query_results", None),
     }
 
     normalized = normalize_event(event)
@@ -130,59 +60,32 @@ def build_event_bundle(
     detection = build_default_detection()
     if detection_results:
         detection["detected"] = True
-
-        # 대표 탐지는 위험 점수가 가장 높은 룰로 선택
-        # 기존 risk_engine / 기존 대시보드가 rule_id, rule_name을 참조해도 깨지지 않게 유지
-        primary = max(detection_results, key=_score_value)
+        
+        # 가독성을 위해 첫 번째 탐지 결과를 대표 정보로 설정
+        primary = detection_results[0]
         detection["rule_id"] = primary.get("rule_id")
         detection["rule_name"] = primary.get("rule_name")
-        detection["rule_score"] = primary.get("rule_score", 0)
         detection["attack_tactic"] = primary.get("attack_tactic")
         detection["attack_technique"] = primary.get("attack_technique")
 
         for res in detection_results:
-            rule_id = res.get("rule_id")
-            rule_name = res.get("rule_name")
-            rule_risk = res.get("risk") or {}
+            # 사유(reason) 통합
+            r = res.get("reason", [])
+            detection["reason"].extend(r if isinstance(r, list) else [r])
+            
+            # 대응 가이드(response_guide) 통합
+            g = res.get("response_guide", [])
+            detection["response_guide"].extend(g if isinstance(g, list) else [g])
+            
+            # 탐지된 모든 룰 ID 기록
+            detection["all_rules"].append(res.get("rule_id"))
 
-            detection["all_rules"].append(rule_id)
-            detection["matched_rules"].append({
-                "rule_id": rule_id,
-                "rule_name": rule_name,
-                "rule_score": res.get("rule_score", 0),
-                "reason": _as_list(res.get("reason")),
-                "attack_tactic": res.get("attack_tactic"),
-                "attack_technique": res.get("attack_technique"),
-                "response_guide": _as_list(res.get("response_guide")),
-                "risk": rule_risk,
-            })
-
-            detection["reason"].extend(_as_list(res.get("reason")))
-            detection["response_guide"].extend(_as_list(res.get("response_guide")))
-
-        detection["all_rules"] = _unique_keep_order(detection["all_rules"])
-        detection["reason"] = _unique_keep_order(detection["reason"])
-        detection["response_guide"] = _unique_keep_order(detection["response_guide"])
+        # 중복 제거 (set 활용)
+        detection["reason"] = list(set(detection["reason"]))
+        detection["response_guide"] = list(set(detection["response_guide"]))
 
     # 5. 위험도 계산
-    risk = calculate_risk(
-        event,
-        normalized,
-        detection,
-        scenario_runs=scenario_runs,
-    )
-
-    risk["llm_triage"] = {
-        "enabled": False,
-        "called": False,
-        "verdict": "not_requested",
-        "confidence": 0.0,
-        "summary": "LLM 2차 판단이 아직 실행되지 않았습니다.",
-        "suspicious_points": [],
-        "benign_context": [],
-        "recommended_action": "",
-        "error": None,
-    }
+    risk = calculate_risk(event, normalized, detection)
 
     try:
         original_event = json.loads(event.raw_json) if event.raw_json else {}

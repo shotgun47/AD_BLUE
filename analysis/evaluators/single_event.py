@@ -6,24 +6,11 @@ def _get_field_value(field: str, event_dict: Dict[str, Any], normalized: Dict[st
         return normalized.get(field)
     return event_dict.get(field)
 
-
-# def _match_conditions(match: Dict[str, Any], event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> bool:
-#     for field, expected in match.items():
-#         actual = _get_field_value(field, event_dict, normalized)
-#         # 타입 불일치 방지를 위해 문자열 비교 또는 직접 비교
-#         if str(actual) != str(expected):
-#             return False
-#     return True
-
-
-def _match_exact(match: Dict[str, Any], event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> bool:
+def _match_conditions(match: Dict[str, Any], event_dict: Dict[str, Any], normalized: Dict[str, Any]) -> bool:
     for field, expected in match.items():
         actual = _get_field_value(field, event_dict, normalized)
-
-        actual_str = str(actual).lower()
-        expected_str = str(expected).lower()
-
-        if actual_str.startswith("%{") and actual_str.endswith("}"):
+        # 타입 불일치 방지를 위해 문자열 비교 또는 직접 비교
+        if str(actual) != str(expected):
             return False
 
         if actual_str != expected_str:
@@ -72,15 +59,12 @@ def _contains_any(contains_any: Dict[str, Any], event_dict: Dict[str, Any], norm
 
     return True
 
-
 def evaluate_single_event_rule(
     rule: Dict[str, Any],
     event_dict: Dict[str, Any],
     normalized: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
     
-    rule = rule or {}
-
     # 1. 룰 매칭 확인
     match = rule.get("match", {})
     match_any = rule.get("match_any", {})
@@ -121,41 +105,29 @@ def evaluate_single_event_rule(
     #     "rule_score": base_score
     # }
 
-    # risk_engine을 호출하여 컨텍스트 가중치가 적용된 점수와 severity를 계산
-    # risk_result = calculate_risk(event_dict, normalized, detection_ctx)
-    
-    # 정황 분석으로 걸러진 데이터인데 최종 severity가 'none' 혹은 'low'면서 점수가 0점이면 최종 리턴에서 제외 (노이즈 방지)
-    # if not is_matched and risk_result["final_score"] == 0:
-    #     return None
-
-    user = (
-        normalized.get("username")
-        or event_dict.get("username")
-        or normalized.get("user")
-        or event_dict.get("user")
-        or "Unknown"
-    )
-    computer = normalized.get("computer_name") or event_dict.get("computer_name", "Unknown")
+    # 2. 결과 생성을 위한 필드 추출 (대시보드 파싱용)
+    base_score = int(rule.get("score", 0))
+    severity = rule.get("severity", "low")
+    rule_name = rule.get("name")
     
     # 3. 탐지 사유(reason) 동적 생성
-    if is_matched:
-        reason = f"[{rule_name}] 탐지: {computer} 호스트에서 {user} 계정에 의해 발생"
-    else:
-        # 정황 분석(ex: 비업무시간 특권계정 로그인 등)에 따른 사유 분기
-        reason = f"[정황 분석] {computer} 호스트에서 {user} 계정의 기본 이벤트({normalized.get('event_type')}) 감지"
+    user = normalized.get("username") or event_dict.get("username", "Unknown")
+    computer = normalized.get("computer_name") or event_dict.get("computer_name", "Unknown")
+    
+    reason = f"[{rule_name}] 탐지: {computer} 호스트에서 {user} 계정에 의해 발생"
     
     # 4. 최종 탐지 객체 반환 (DB 저장 형태와 일치)
     return {
-        # "detected": is_matched,  # 시그니처 룰 매칭 여부 기록
-        "rule_id": rule_id,
+        "detected": True,
+        "rule_id": rule.get("rule_id"),
         "rule_name": rule_name,
-        "rule_score": base_score,
-        "reason": reason,
+        "reason": [reason],
         "attack_tactic": rule.get("attack", {}).get("tactic"),
         "attack_technique": rule.get("attack", {}).get("technique"),
         "response_guide": rule.get("response_guide", []),
         "risk": {
             "base_score": base_score,
+            "weight": 0, # 단일 이벤트는 가중치 0 (기본값)
             "final_score": base_score,
             "severity": rule.get("severity", "low"),
         },
